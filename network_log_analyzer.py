@@ -452,10 +452,94 @@ def get_linux_wlan_profiles():
     return "=== Saved Network Profiles (Linux) ===\n\n" + output + "\n"
 
 
+def _macos_wifi_interface(hardware_ports=None):
+    """Return the BSD device name for the macOS Wi-Fi hardware port."""
+    output = hardware_ports or _run_cmd(["networksetup", "-listallhardwareports"])
+    match = re.search(
+        r"Hardware Port: (?:Wi-Fi|AirPort)\s+Device: (\S+)", output, re.IGNORECASE
+    )
+    return match.group(1) if match else None
+
+
+def get_macos_wifi_snapshot():
+    interface = _macos_wifi_interface()
+    if not interface:
+        return "=== Current Wi-Fi Connection (macOS) ===\n\nWi-Fi interface unavailable.\n"
+    network = _run_cmd(["networksetup", "-getairportnetwork", interface])
+    details = _run_cmd(["networksetup", "-getinfo", "Wi-Fi"])
+    return f"=== Current Wi-Fi Connection (macOS: {interface}) ===\n\n{network}\n\n{details}\n"
+
+
+def get_macos_nearby_networks():
+    output = _run_cmd(["system_profiler", "SPAirPortDataType", "-detailLevel", "mini"], timeout=25)
+    return "=== Wi-Fi Information and Nearby Networks (macOS) ===\n\n" + output + "\n"
+
+
+def get_macos_ip_config():
+    addresses = _run_cmd(["ifconfig"])
+    routes = _run_cmd(["netstat", "-rn", "-f", "inet"])
+    resolver = _run_cmd(["scutil", "--dns"])
+    return (
+        "=== IP Configuration (macOS) ===\n\n"
+        f"── Interfaces ──\n{addresses}\n\n"
+        f"── IPv4 Routes ──\n{routes}\n\n"
+        f"── DNS Resolver ──\n{resolver}\n"
+    )
+
+
+def test_macos_dns_resolution():
+    targets = ["www.google.com", "dns.google", "login.microsoftonline.com"]
+    results = "=== DNS Resolution Test (macOS) ===\n\n"
+    for target in targets:
+        output = _run_cmd(["dscacheutil", "-q", "host", "-a", "name", target], timeout=5)
+        addresses = re.findall(r"^ip_address:\s*(\S+)", output, re.MULTILINE)
+        if addresses:
+            results += f"  ✓ {target} → {', '.join(dict.fromkeys(addresses))}\n"
+        else:
+            results += f"  ✗ {target} → FAILED to resolve\n"
+    return results
+
+
+def _macos_default_gateway(route_output):
+    match = re.search(r"^\s*gateway:\s*(\S+)", route_output, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def test_macos_gateway_ping():
+    route_output = _run_cmd(["route", "-n", "get", "default"])
+    gateway = _macos_default_gateway(route_output)
+    if not gateway:
+        return "=== Gateway Ping Test (macOS) ===\n\nCould not determine default gateway.\n"
+    output = _run_cmd(["ping", "-c", "4", "-W", "1000", gateway], timeout=15)
+    return f"=== Gateway Ping Test (macOS: {gateway}) ===\n\n{output}\n"
+
+
+def get_macos_nic_info():
+    interface = _macos_wifi_interface()
+    profiler = _run_cmd(["system_profiler", "SPAirPortDataType", "-detailLevel", "mini"], timeout=25)
+    link = _run_cmd(["ifconfig", interface]) if interface else "Wi-Fi interface unavailable."
+    return f"=== Wi-Fi Hardware (macOS) ===\n\n{link}\n\n{profiler}\n"
+
+
+def get_macos_wlan_profiles():
+    interface = _macos_wifi_interface()
+    if not interface:
+        return "=== Preferred Wi-Fi Networks (macOS) ===\n\nWi-Fi interface unavailable.\n"
+    output = _run_cmd(["networksetup", "-listpreferredwirelessnetworks", interface])
+    return "=== Preferred Wi-Fi Networks (macOS) ===\n\n" + output + "\n"
+
+
+def get_macos_certificate_inventory():
+    output = _run_cmd(["security", "find-certificate", "-a", "-Z"], timeout=20)
+    return "=== Certificate Inventory (macOS Keychain) ===\n\n" + output + "\n"
+
+
 def get_wifi_snapshot():
     """Get current Wi-Fi interface status via netsh. No admin needed."""
     if sys.platform.startswith("linux"):
         return get_linux_wifi_snapshot()
+    if sys.platform.startswith("darwin"):
+        return get_macos_wifi_snapshot()
     output = _run_cmd(["netsh", "wlan", "show", "interfaces"])
     if not output or output.startswith("["):
         return "Wi-Fi interface information unavailable.\n" + output
@@ -489,6 +573,8 @@ def get_nearby_networks():
     """List nearby wireless networks. No admin needed."""
     if sys.platform.startswith("linux"):
         return get_linux_nearby_networks()
+    if sys.platform.startswith("darwin"):
+        return get_macos_nearby_networks()
     output = _run_cmd(["netsh", "wlan", "show", "networks", "mode=bssid"])
     if not output or output.startswith("["):
         return "Nearby network scan unavailable.\n" + output
@@ -499,6 +585,8 @@ def get_ip_config():
     """Get IP configuration. No admin needed."""
     if sys.platform.startswith("linux"):
         return get_linux_ip_config()
+    if sys.platform.startswith("darwin"):
+        return get_macos_ip_config()
     output = _run_cmd(["ipconfig", "/all"])
     if not output or output.startswith("["):
         return "IP configuration unavailable.\n" + output
@@ -519,6 +607,8 @@ def test_dns_resolution():
     """Test DNS resolution for common targets. No admin needed."""
     if sys.platform.startswith("linux"):
         return test_linux_dns_resolution()
+    if sys.platform.startswith("darwin"):
+        return test_macos_dns_resolution()
     targets = ["www.google.com", "dns.google", "login.microsoftonline.com"]
     results = "=== DNS Resolution Test ===\n\n"
 
@@ -538,6 +628,8 @@ def test_gateway_ping():
     """Ping default gateway. No admin needed."""
     if sys.platform.startswith("linux"):
         return test_linux_gateway_ping()
+    if sys.platform.startswith("darwin"):
+        return test_macos_gateway_ping()
     ipconfig = _run_cmd(["ipconfig"])
     gateway_match = re.search(r"Default Gateway.*?:\s*([\d.]+)", ipconfig)
     if not gateway_match:
@@ -568,6 +660,8 @@ def get_nic_driver_info():
     """Get Wi-Fi NIC adapter and driver info. No admin needed."""
     if sys.platform.startswith("linux"):
         return get_linux_nic_info()
+    if sys.platform.startswith("darwin"):
+        return get_macos_nic_info()
     ps_cmd = (
         "Get-NetAdapter | Where-Object {$_.PhysicalMediaType -match 'Wireless|Native 802.11' -or "
         "$_.Name -match 'Wi-Fi|Wireless|WLAN'} | "
@@ -615,6 +709,8 @@ def get_wlan_profiles():
     """Get WLAN profile configuration. No admin needed (keys excluded)."""
     if sys.platform.startswith("linux"):
         return get_linux_wlan_profiles()
+    if sys.platform.startswith("darwin"):
+        return get_macos_wlan_profiles()
     list_output = _run_cmd(["netsh", "wlan", "show", "profiles"])
     if not list_output or "is not running" in list_output:
         return "WLAN service not running or no profiles found.\n"
@@ -676,6 +772,8 @@ def get_certificate_inventory():
             "Linux certificate-store inventory is not implemented yet.\n"
             "The current Linux diagnostics avoid invoking Windows PowerShell.\n"
         )
+    if sys.platform.startswith("darwin"):
+        return get_macos_certificate_inventory()
     results = "=== Certificate Inventory (802.1X Relevant) ===\n\n"
 
     # User certificate store
@@ -770,6 +868,12 @@ def generate_wlan_report():
             "=== WLAN Report ===\n\n"
             "The Windows WLAN report is not available on Linux.\n"
             "Use the Linux journal and live diagnostics for current evidence.\n"
+        )
+    if sys.platform.startswith("darwin"):
+        return (
+            "=== Network Evidence Report (macOS) ===\n\n"
+            "Windows WLAN report generation is not available on macOS.\n"
+            "Use the Unified Log scan and the other diagnostics tabs for macOS evidence.\n"
         )
     results = "=== Windows WLAN Report ===\n\n"
 
@@ -1600,7 +1704,7 @@ class NetworkLogAnalyzerApp:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Windows Network Log Analyzer — Enterprise Wireless")
+        self.root.title("Network Log Analyzer — Enterprise Wireless")
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         window_width = min(1200, max(640, screen_width - 80))
@@ -1615,82 +1719,7 @@ class NetworkLogAnalyzerApp:
         self.wlan_report_content = ""
         self._build_ui()
 
-    def _build_macos_compat_ui(self):
-        """Build a classic-Tk fallback for Macs with broken ttk rendering."""
-        self.root.configure(background="white")
-        self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_rowconfigure(2, weight=1)
-
-        controls = tk.Frame(self.root, background="white", padx=8, pady=8)
-        controls.grid(row=0, column=0, sticky="ew")
-        controls.grid_columnconfigure(0, weight=1)
-
-        tk.Label(
-            controls,
-            text="Network Log Analyzer — macOS compatibility mode",
-            background="white",
-            foreground="black",
-            font=("Helvetica", 16, "bold"),
-            anchor=tk.W,
-        ).grid(row=0, column=0, sticky="ew", pady=(0, 6))
-
-        row = tk.Frame(controls, background="white")
-        row.grid(row=1, column=0, sticky="ew")
-        tk.Label(row, text="Hours back:", background="white", foreground="black").pack(side=tk.LEFT)
-        self.hours_var = tk.StringVar(value="24")
-        tk.Spinbox(row, from_=1, to=168, width=5, textvariable=self.hours_var).pack(
-            side=tk.LEFT, padx=(4, 10)
-        )
-        self.scan_btn = tk.Button(row, text="Scan Logs", command=self._start_scan)
-        self.scan_btn.pack(side=tk.LEFT, padx=4)
-        self.diag_btn = tk.Button(row, text="Run Diagnostics", command=self._start_diagnostics)
-        self.diag_btn.pack(side=tk.LEFT, padx=4)
-        self.export_btn = tk.Button(row, text="Export Report", command=self._export_report)
-        self.export_btn.pack(side=tk.LEFT, padx=4)
-
-        self.status_var = tk.StringVar(value="Ready — Scan Logs or Run Diagnostics")
-        tk.Label(
-            self.root,
-            textvariable=self.status_var,
-            background="white",
-            foreground="black",
-            relief=tk.SUNKEN,
-            borderwidth=1,
-            padx=6,
-            pady=4,
-            anchor=tk.W,
-        ).grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
-
-        output_frame = tk.Frame(self.root, background="#808080", borderwidth=1)
-        output_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
-        output_frame.grid_columnconfigure(0, weight=1)
-        output_frame.grid_rowconfigure(0, weight=1)
-
-        self.mac_output_text = tk.Text(
-            output_frame,
-            wrap=tk.WORD,
-            background="white",
-            foreground="black",
-            insertbackground="black",
-            relief=tk.SUNKEN,
-            borderwidth=1,
-            font=("Menlo", 10),
-        )
-        output_scrollbar = tk.Scrollbar(output_frame, command=self.mac_output_text.yview)
-        self.mac_output_text.configure(yscrollcommand=output_scrollbar.set)
-        self.mac_output_text.grid(row=0, column=0, sticky="nsew")
-        output_scrollbar.grid(row=0, column=1, sticky="ns")
-        self.mac_output_text.insert(
-            "1.0",
-            "macOS compatibility mode is active.\n"
-            "Choose Scan Logs or Run Diagnostics.\n",
-        )
-
     def _build_ui(self):
-        if sys.platform.startswith("darwin"):
-            self._build_macos_compat_ui()
-            return
-
         # The system Aqua Tk theme can render as an empty surface on some
         # macOS/Python combinations. Use ttk's portable theme there.
         if sys.platform.startswith("darwin"):
@@ -1819,14 +1848,14 @@ class NetworkLogAnalyzerApp:
 
         # Tab 6: WLAN Profiles
         profile_frame = ttk.Frame(self.notebook)
-        self.notebook.add(profile_frame, text="WLAN Profiles")
+        self.notebook.add(profile_frame, text="Network Profiles")
         self.profile_text = scrolledtext.ScrolledText(
             profile_frame, wrap=tk.WORD, font=("Consolas", 9))
         self.profile_text.pack(fill=tk.BOTH, expand=True)
 
         # Tab 7: WLAN Report
         report_frame = ttk.Frame(self.notebook)
-        self.notebook.add(report_frame, text="WLAN Report")
+        self.notebook.add(report_frame, text="Network Report")
         self.report_text = scrolledtext.ScrolledText(
             report_frame, wrap=tk.WORD, font=("Consolas", 9))
         self.report_text.pack(fill=tk.BOTH, expand=True)
@@ -1915,34 +1944,6 @@ class NetworkLogAnalyzerApp:
         self.root.after(0, lambda: self._populate_logs_ui(timelines, issues))
 
     def _populate_logs_ui(self, timelines, issues):
-        if hasattr(self, "mac_output_text"):
-            lines = ["=== macOS Scan Results ===", ""]
-            if issues:
-                lines.append("── Issues & Recommendations ──")
-                for index, issue in enumerate(issues, 1):
-                    lines.append(f"{index}. {issue}")
-                lines.append("")
-            if timelines:
-                lines.append("── Connection Timeline ──")
-                for start, end, duration, outcome, phases in timelines:
-                    lines.append(
-                        f"{start:%Y-%m-%d %H:%M:%S}  {duration:.1f}s  {outcome}  {phases}"
-                    )
-                lines.append("")
-            lines.append(f"── All Events ({len(self.events)}) ──")
-            for event in self.events:
-                lines.append(
-                    f"{event.timestamp:%Y-%m-%d %H:%M:%S}  {event.severity:<7} "
-                    f"{event.source}  {event.message[:240]}"
-                )
-            self.mac_output_text.delete("1.0", tk.END)
-            self.mac_output_text.insert("1.0", "\n".join(lines))
-            self.status_var.set(
-                f"Done — {len(self.events)} event(s), {len(timelines)} connection attempt(s)"
-            )
-            self.scan_btn.configure(state=tk.NORMAL)
-            return
-
         # Clear
         for item in self.timeline_tree.get_children():
             self.timeline_tree.delete(item)
@@ -2020,23 +2021,6 @@ class NetworkLogAnalyzerApp:
 
     def _populate_diagnostics_ui(self, diag_text, cert_text,
                                   profile_text, wlan_report):
-        if hasattr(self, "mac_output_text"):
-            self.mac_output_text.delete("1.0", tk.END)
-            self.mac_output_text.insert(
-                "1.0",
-                "=== macOS Diagnostics ===\n\n"
-                + diag_text
-                + "\n\n=== Certificates ===\n\n"
-                + cert_text
-                + "\n\n=== Network Profiles ===\n\n"
-                + profile_text
-                + "\n\n=== WLAN Report ===\n\n"
-                + wlan_report,
-            )
-            self.status_var.set("Diagnostics complete")
-            self.diag_btn.configure(state=tk.NORMAL)
-            return
-
         self.diag_text.delete("1.0", tk.END)
         self.diag_text.insert("1.0", diag_text)
 
@@ -2077,12 +2061,9 @@ class NetworkLogAnalyzerApp:
             messagebox.showerror("Export Failed", f"Could not write file:\n{e}")
 
     def _build_report(self):
-        if hasattr(self, "mac_output_text"):
-            return self.mac_output_text.get("1.0", tk.END).strip() + "\n"
-
         lines = []
         lines.append("=" * 70)
-        lines.append("WINDOWS NETWORK DIAGNOSTIC REPORT — ENTERPRISE WIRELESS")
+        lines.append("NETWORK DIAGNOSTIC REPORT — ENTERPRISE WIRELESS")
         lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"Computer:  {os.environ.get('COMPUTERNAME', 'Unknown')}")
         lines.append(f"User:      {os.environ.get('USERNAME', 'Unknown')}")
@@ -2296,6 +2277,15 @@ def _self_check():
     )
     assert loss == 0
     assert average == 2.5
+
+    # Test macOS command-output parsing without requiring macOS
+    mac_interface = _macos_wifi_interface(
+        "Hardware Port: Wi-Fi\nDevice: en0\nEthernet Address: aa:bb:cc:dd:ee:ff"
+    )
+    assert mac_interface == "en0"
+    assert _macos_default_gateway(
+        "   route to: default\ndestination: default\n    gateway: 192.168.1.1"
+    ) == "192.168.1.1"
 
     # Test parsing of macOS Unified Log NDJSON without requiring macOS
     mac_fixture = json.dumps({

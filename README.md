@@ -1,21 +1,22 @@
-# Windows Network Log Analyzer
+# Network Log Analyzer
 
-Windows desktop utility for investigating enterprise Wi-Fi onboarding and connectivity problems.
+Cross-platform desktop utility for investigating enterprise Wi-Fi onboarding and connectivity problems on Windows, macOS, and Linux.
 
-The project currently combines Windows Event Log analysis with live network diagnostics. This README is the working source of documentation for the project: new features, fixes, and design decisions should update it as part of the same change.
+The project combines platform-native log collection with live network diagnostics. This README is the working source of documentation for the project: new features, fixes, and design decisions should update it as part of the same change.
 
 ## Current status
 
-This is an early prototype implemented primarily in [`network_log_analyzer.py`](network_log_analyzer.py). The built-in synthetic self-check passes and the module compiles with Python 3.12, but real Windows validation is still required.
+This is an early cross-platform prototype implemented primarily in [`network_log_analyzer.py`](network_log_analyzer.py). The built-in synthetic self-check passes and the module compiles with Python 3.12. Linux has received local testing; macOS and Windows still require direct validation on those operating systems.
 
-The application is Windows-specific and uses:
+The application uses:
 
 - Python 3.11 or newer
 - Tkinter for the desktop UI
-- `pywin32` for Windows Event Log access
-- `netsh`, `ipconfig`, `ping`, `nslookup`, and PowerShell for diagnostics
+- `pywin32` and Windows-native commands on Windows
+- `journalctl`, NetworkManager, `ip`, resolver tools, and `ping` on Linux
+- Unified Logging and standard macOS networking commands on macOS
 
-The analysis concepts are portable, but the current collectors are not. The next major architectural goal is support for macOS and Linux without pretending that their logs expose exactly the same information as Windows.
+The interface and normalized event model are shared, while each operating system retains its native collectors and capabilities.
 
 ## Assessment of `requirements.txt`
 
@@ -35,7 +36,7 @@ The likely future arrangement is:
 - Document operating-system tools separately because `nmcli`, `networksetup`, `journalctl`, PowerShell, and similar utilities are not Python packages.
 - Treat Tkinter as a system/runtime capability: it is part of many Python installations, but Linux distributions may require a separate package such as `python3-tk`.
 
-Until the packaging is refactored, Linux/macOS developers can install the source without `pywin32` for the platform-neutral work, provided they do not invoke the Windows Event Log path.
+The platform marker means Linux and macOS installations skip `pywin32` automatically.
 
 ## Publication and ownership assessment
 
@@ -167,28 +168,28 @@ The results can be exported as a text report from the GUI.
 
 On Linux, the implemented live diagnostics use `nmcli`, `ip`, `resolvectl`/`getent`, and `ping`. Linux certificate inventory and the Windows WLAN report remain explicitly unsupported for now. Linux issue detection is message-based and intentionally lower-confidence than provider-specific Windows analysis.
 
-On macOS, the bundled system Tcl/Tk may print a deprecation warning. The application suppresses that warning, but a newer Python distribution with a current Tk runtime is recommended if the GUI renders incorrectly.
+On macOS, the bundled system Tcl/Tk may print a deprecation warning. The application suppresses that warning and selects Tk's portable `clam` theme. A newer Python distribution with a current Tk runtime is still recommended if the GUI renders incorrectly.
 
-The application uses a classic-Tk compatibility UI on macOS because some older Aqua/ttk combinations can render the window surface without visible themed controls. This keeps Scan Logs, Run Diagnostics, Export, and visible results available while native styling is refined.
+macOS now uses the same complete seven-tab interface as Windows and Linux. Its diagnostics use `networksetup`, `system_profiler`, `ifconfig`, `netstat`, `scutil`, `route`, `ping`, `dscacheutil`, and `security`; macOS no longer falls through to Windows `netsh`, `ipconfig`, or PowerShell commands. The Network Report tab explains that Windows WLAN report generation has no direct macOS equivalent and points users to Unified Log evidence and the native diagnostics tabs.
 
 ## Running it
 
 Install the current dependencies:
 
-```powershell
-py -m pip install -r requirements.txt
+```bash
+python3 -m pip install -r requirements.txt
 ```
 
 Run the application:
 
-```powershell
-py network_log_analyzer.py
+```bash
+python3 network_log_analyzer.py
 ```
 
 Run the non-GUI self-check:
 
-```powershell
-py network_log_analyzer.py --self-check
+```bash
+python3 network_log_analyzer.py --self-check
 ```
 
 The event scanner may require access to protected Windows logs. The code is intended to work without elevation for most live diagnostics, but access to the Security log, machine certificate store, or report generation is not guaranteed.
@@ -198,9 +199,9 @@ The event scanner may require access to protected Windows logs. The code is inte
 | Area | Location | Responsibility |
 |---|---|---|
 | Event and reason-code definitions | `network_log_analyzer.py` near the top | Hard-coded provider/event metadata |
-| Command execution | `_run_cmd` | Runs Windows commands and returns text |
+| Command execution | `_run_cmd` | Runs platform-native commands and returns text |
 | Live diagnostics | `get_*`, `test_*`, and `generate_wlan_report` | Collects local network state |
-| Event reading | `read_events` | Reads and filters Windows Event Log records |
+| Event reading | `read_events`, `read_linux_events`, `read_macos_events` | Reads and normalizes native log records |
 | Timeline analysis | `analyze_connection_timeline` | Correlates events into connection attempts |
 | Issue detection | `find_issues` | Generates heuristic findings and recommendations |
 | GUI | `NetworkLogAnalyzerApp` | Displays results and exports reports |
