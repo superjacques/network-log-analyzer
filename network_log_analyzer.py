@@ -1616,7 +1616,23 @@ class NetworkLogAnalyzerApp:
         # macOS/Python combinations. Use ttk's portable theme there.
         if sys.platform.startswith("darwin"):
             try:
-                ttk.Style(self.root).theme_use("clam")
+                style = ttk.Style(self.root)
+                style.theme_use("clam")
+                style.configure("TFrame", background="#f0f0f0")
+                style.configure("TLabel", background="#f0f0f0", foreground="#000000")
+                style.configure("TButton", foreground="#000000")
+                style.configure("TNotebook", background="#f0f0f0")
+                style.configure(
+                    "TNotebook.Tab",
+                    background="#d9d9d9",
+                    foreground="#000000",
+                    padding=(8, 4),
+                )
+                style.map(
+                    "TNotebook.Tab",
+                    background=[("selected", "#ffffff")],
+                    foreground=[("selected", "#000000")],
+                )
                 self.root.configure(background="#f0f0f0")
             except tk.TclError:
                 pass
