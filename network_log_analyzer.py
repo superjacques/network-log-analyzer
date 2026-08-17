@@ -12,8 +12,6 @@ Requires: pywin32 (pip install pywin32)
 All diagnostics work WITHOUT admin rights.
 """
 
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
 from datetime import datetime, timedelta
 from collections import defaultdict
 import threading
@@ -22,6 +20,14 @@ import re
 import os
 import sys
 import json
+
+# Apple ships an older system Tcl/Tk on some macOS versions. Suppress its
+# deprecation notice; users can still install a newer Python/Tk runtime.
+if sys.platform.startswith("darwin"):
+    os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
+
+import tkinter as tk
+from tkinter import ttk, scrolledtext, messagebox, filedialog
 
 try:
     import win32evtlog

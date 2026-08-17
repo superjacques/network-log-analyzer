@@ -167,6 +167,8 @@ The results can be exported as a text report from the GUI.
 
 On Linux, the implemented live diagnostics use `nmcli`, `ip`, `resolvectl`/`getent`, and `ping`. Linux certificate inventory and the Windows WLAN report remain explicitly unsupported for now. Linux issue detection is message-based and intentionally lower-confidence than provider-specific Windows analysis.
 
+On macOS, the bundled system Tcl/Tk may print a deprecation warning. The application suppresses that warning, but a newer Python distribution with a current Tk runtime is recommended if the GUI renders incorrectly.
+
 ## Running it
 
 Install the current dependencies:
