@@ -21,6 +21,7 @@ import subprocess
 import re
 import os
 import sys
+import json
 
 try:
     import win32evtlog
@@ -686,6 +687,78 @@ class LogEvent:
         self.reason_code = reason_code
 
 
+LINUX_NETWORK_LOG_PATTERN = re.compile(
+    r"(networkmanager|wpa[_-]?supplicant|iwd|systemd-networkd|dhclient|"
+    r"dhcpcd|connman|wireless|wifi|wi-fi|wlan|dns|carrier|deauth|"
+    r"disassoc|disconnect|association|link)",
+    re.IGNORECASE,
+)
+
+
+def _linux_event_severity(priority):
+    """Map systemd journal priorities to the application's severity names."""
+    try:
+        priority = int(priority)
+    except (TypeError, ValueError):
+        return "INFO"
+    if priority <= 3:  # emerg, alert, critical, error
+        return "ERROR"
+    if priority == 4:  # warning
+        return "WARNING"
+    return "INFO"
+
+
+def _parse_linux_journal(output):
+    """Convert network-related journal JSON records into LogEvent objects."""
+    events = []
+    for line in output.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        message = str(record.get("MESSAGE", "")).strip()
+        identifier = str(
+            record.get("SYSLOG_IDENTIFIER")
+            or record.get("_SYSTEMD_UNIT")
+            or record.get("_COMM")
+            or "journal"
+        )
+        context = " ".join((identifier, message))
+        if not LINUX_NETWORK_LOG_PATTERN.search(context):
+            continue
+
+        try:
+            timestamp = datetime.fromtimestamp(
+                int(record["__REALTIME_TIMESTAMP"]) / 1_000_000
+            )
+        except (KeyError, TypeError, ValueError, OSError):
+            continue
+
+        events.append(LogEvent(
+            timestamp,
+            0,
+            f"Linux/journalctl/{identifier}",
+            f"Linux: {identifier}",
+            "Network-related Linux journal event",
+            message,
+            _linux_event_severity(record.get("PRIORITY")),
+        ))
+
+    return events
+
+
+def read_linux_events(hours_back=24):
+    """Read network-related Linux systemd journal entries, if available."""
+    output = _run_cmd([
+        "journalctl", "--since", f"{hours_back} hours ago",
+        "--output=json", "--no-pager",
+    ], timeout=30)
+    if not output or output.startswith("["):
+        return None
+    return _parse_linux_journal(output)
+
+
 def _extract_reason_code(message):
     """Try to extract a reason code from event message string inserts."""
     # Reason codes often appear as a numeric field in the message
@@ -1199,10 +1272,11 @@ class NetworkLogAnalyzerApp:
     # --- Log Scanning ---
 
     def _start_scan(self):
-        if win32evtlog is None:
+        if win32evtlog is None and not sys.platform.startswith("linux"):
             messagebox.showerror(
                 "Missing Dependency",
-                "pywin32 is required.\n\nInstall with:\n  pip install pywin32"
+                "Log scanning is currently supported on Windows and Linux.\n\n"
+                "Windows requires pywin32; Linux requires journalctl."
             )
             return
         self.scan_btn.configure(state=tk.DISABLED)
@@ -1217,12 +1291,19 @@ class NetworkLogAnalyzerApp:
 
         all_events = []
         disabled_logs = []
-        for log_name, event_map in LOG_SOURCES:
-            evts = read_events(log_name, event_map, hours_back=hours)
-            if evts is None:
-                disabled_logs.append(log_name)
+        if sys.platform.startswith("linux"):
+            linux_events = read_linux_events(hours_back=hours)
+            if linux_events is None:
+                disabled_logs.append("Linux system journal")
             else:
-                all_events.extend(evts)
+                all_events.extend(linux_events)
+        else:
+            for log_name, event_map in LOG_SOURCES:
+                evts = read_events(log_name, event_map, hours_back=hours)
+                if evts is None:
+                    disabled_logs.append(log_name)
+                else:
+                    all_events.extend(evts)
 
         all_events.sort(key=lambda e: e.timestamp)
         self.events = all_events
@@ -1231,20 +1312,26 @@ class NetworkLogAnalyzerApp:
         issues = find_issues(all_events)
 
         if disabled_logs:
-            note = (
-                "NOTE — These log channels are disabled/inaccessible.\n"
-                "Ask your admin to enable (requires elevation):\n"
-            )
-            for log in disabled_logs:
-                short = log.replace("Microsoft-Windows-", "")
-                note += f"  • {short}\n"
-            note += (
-                "\nEnable commands (admin):\n"
-                "  wevtutil sl Microsoft-Windows-CAPI2/Operational /e:true\n"
-                "  wevtutil sl Microsoft-Windows-OneX/Operational /e:true\n"
-                "  wevtutil sl Microsoft-Windows-CertificateServicesClient-"
-                "Lifecycle-System/Operational /e:true\n"
-            )
+            if sys.platform.startswith("linux"):
+                note = (
+                    "NOTE — The Linux system journal was unavailable.\n"
+                    "Install/enable systemd-journald and ensure journalctl is readable.\n"
+                )
+            else:
+                note = (
+                    "NOTE — These log channels are disabled/inaccessible.\n"
+                    "Ask your admin to enable (requires elevation):\n"
+                )
+                for log in disabled_logs:
+                    short = log.replace("Microsoft-Windows-", "")
+                    note += f"  • {short}\n"
+                note += (
+                    "\nEnable commands (admin):\n"
+                    "  wevtutil sl Microsoft-Windows-CAPI2/Operational /e:true\n"
+                    "  wevtutil sl Microsoft-Windows-OneX/Operational /e:true\n"
+                    "  wevtutil sl Microsoft-Windows-CertificateServicesClient-"
+                    "Lifecycle-System/Operational /e:true\n"
+                )
             issues.append(note)
 
         self.root.after(0, lambda: self._populate_logs_ui(timelines, issues))
@@ -1538,6 +1625,19 @@ def _self_check():
     ])
     assert failed_command.startswith("[Command failed with exit code 3:")
     assert "expected failure" in failed_command
+
+    # Test parsing of Linux journal JSON without requiring a live journal
+    linux_fixture = json.dumps({
+        "__REALTIME_TIMESTAMP": str(int(now.timestamp() * 1_000_000)),
+        "SYSLOG_IDENTIFIER": "NetworkManager",
+        "PRIORITY": "4",
+        "MESSAGE": "Wi-Fi association lost",
+    })
+    linux_events = _parse_linux_journal(linux_fixture)
+    assert len(linux_events) == 1
+    assert linux_events[0].source == "Linux/journalctl/NetworkManager"
+    assert linux_events[0].severity == "WARNING"
+    assert linux_events[0].message == "Wi-Fi association lost"
 
     # Test NetworkProfile fallback
     np_events = [

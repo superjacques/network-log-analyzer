@@ -76,6 +76,7 @@ The main work that cannot be honestly validated without Windows is the actual `p
 - Verified the self-check and a real non-Windows command-runner invocation on Linux.
 - Made event severity channel-aware and added regression coverage for reused IDs such as `1002` and `1003`.
 - Made failed commands report their exit code and stderr instead of appearing as empty output.
+- Added an initial Linux `journalctl` collector for network-related events; Linux scanning now populates the existing event view.
 
 ## Cross-platform expansion
 
@@ -118,7 +119,7 @@ Collectors should advertise capabilities instead of assuming every platform supp
 
 1. Extract the current Windows command and event-log code into a `platforms/windows` backend without changing behavior.
 2. Define normalized models and convert the existing Windows collector to produce them.
-3. Add a read-only Linux backend using `nmcli`/`ip`/`journalctl`, with NetworkManager detection and graceful fallbacks.
+3. Extend the initial Linux backend using `nmcli`/`ip` and NetworkManager-specific evidence, with graceful fallbacks.
 4. Add a read-only macOS backend using `networksetup`/`system_profiler`/`scutil`/`log show`.
 5. Move timeline and issue logic to the normalized layer.
 6. Add platform fixture tests and capability-aware UI messaging.
