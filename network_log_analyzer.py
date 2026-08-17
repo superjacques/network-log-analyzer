@@ -534,6 +534,21 @@ def get_macos_certificate_inventory():
     return "=== Certificate Inventory (macOS Keychain) ===\n\n" + output + "\n"
 
 
+def generate_macos_network_report():
+    """Collect a compact macOS equivalent of the Windows WLAN report."""
+    interface = _macos_wifi_interface()
+    sections = ["=== macOS Network Evidence Report ===", ""]
+    sections.append(f"Wi-Fi interface: {interface or 'unavailable'}")
+    sections.append("\n── Wi-Fi Connection ──\n" + get_macos_wifi_snapshot())
+    sections.append("\n── IP Configuration and Routes ──\n" + get_macos_ip_config())
+    log_output = _run_cmd([
+        "log", "show", "--last", "1h", "--style", "compact", "--info",
+        "--predicate", "process == 'airportd' OR subsystem CONTAINS[c] 'wifi'",
+    ], timeout=25)
+    sections.append("\n── Recent Unified Wi-Fi Log (last hour) ──\n" + log_output)
+    return "\n".join(sections) + "\n"
+
+
 def get_wifi_snapshot():
     """Get current Wi-Fi interface status via netsh. No admin needed."""
     if sys.platform.startswith("linux"):
@@ -870,11 +885,7 @@ def generate_wlan_report():
             "Use the Linux journal and live diagnostics for current evidence.\n"
         )
     if sys.platform.startswith("darwin"):
-        return (
-            "=== Network Evidence Report (macOS) ===\n\n"
-            "Windows WLAN report generation is not available on macOS.\n"
-            "Use the Unified Log scan and the other diagnostics tabs for macOS evidence.\n"
-        )
+        return generate_macos_network_report()
     results = "=== Windows WLAN Report ===\n\n"
 
     # Generate the report

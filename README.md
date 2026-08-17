@@ -170,7 +170,7 @@ On Linux, the implemented live diagnostics use `nmcli`, `ip`, `resolvectl`/`gete
 
 On macOS, the bundled system Tcl/Tk may print a deprecation warning. The application suppresses that warning and selects Tk's portable `clam` theme. A newer Python distribution with a current Tk runtime is still recommended if the GUI renders incorrectly.
 
-macOS now uses the same complete seven-tab interface as Windows and Linux. Its diagnostics use `networksetup`, `system_profiler`, `ifconfig`, `netstat`, `scutil`, `route`, `ping`, `dscacheutil`, and `security`; macOS no longer falls through to Windows `netsh`, `ipconfig`, or PowerShell commands. The Network Report tab explains that Windows WLAN report generation has no direct macOS equivalent and points users to Unified Log evidence and the native diagnostics tabs.
+macOS now uses the same complete seven-tab interface as Windows and Linux. Its diagnostics use `networksetup`, `system_profiler`, `ifconfig`, `netstat`, `scutil`, `route`, `ping`, `dscacheutil`, and `security`; macOS no longer falls through to Windows `netsh`, `ipconfig`, or PowerShell commands. The Network Report tab produces a compact macOS network-evidence report from native Wi-Fi, route, DNS, and recent Unified Log data.
 
 ## Running it
 
