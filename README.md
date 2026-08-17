@@ -77,6 +77,7 @@ The main work that cannot be honestly validated without Windows is the actual `p
 - Made event severity channel-aware and added regression coverage for reused IDs such as `1002` and `1003`.
 - Made failed commands report their exit code and stderr instead of appearing as empty output.
 - Added an initial Linux `journalctl` collector for network-related events; Linux scanning now populates the existing event view.
+- Added Linux live diagnostics for NetworkManager state/profiles, nearby Wi-Fi, IP/routes, DNS, and gateway ping.
 
 ## Cross-platform expansion
 
@@ -160,6 +161,8 @@ The diagnostics workflow collects:
 - The Windows WLAN report
 
 The results can be exported as a text report from the GUI.
+
+On Linux, the implemented live diagnostics use `nmcli`, `ip`, `resolvectl`/`getent`, and `ping`. Linux certificate inventory and the Windows WLAN report remain explicitly unsupported for now.
 
 ## Running it
 

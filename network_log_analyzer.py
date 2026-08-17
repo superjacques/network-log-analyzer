@@ -302,8 +302,154 @@ def _run_cmd(cmd, timeout=15):
         return f"[Error: {e}]"
 
 
+def _linux_unavailable(output):
+    return not output or output.startswith("[")
+
+
+def get_linux_wifi_snapshot():
+    """Get current Wi-Fi state through NetworkManager's nmcli."""
+    output = _run_cmd([
+        "nmcli", "-f", "DEVICE,TYPE,STATE,CONNECTION",
+        "device", "status",
+    ])
+    if _linux_unavailable(output):
+        return "Wi-Fi interface information unavailable.\n" + output
+
+    summary = "=== Current Wi-Fi Connection (Linux) ===\n\n"
+    wifi_lines = [
+        line for line in output.splitlines()
+        if re.search(r"\bwifi\b|wireless|wlan", line, re.IGNORECASE)
+    ]
+    if wifi_lines:
+        summary += "\n".join(wifi_lines) + "\n"
+    else:
+        summary += output + "\n"
+    return summary
+
+
+def get_linux_nearby_networks():
+    """List nearby Wi-Fi networks through NetworkManager's nmcli."""
+    output = _run_cmd([
+        "nmcli", "-f", "IN-USE,SSID,MODE,CHAN,RATE,SIGNAL,BARS,SECURITY",
+        "device", "wifi", "list",
+    ], timeout=20)
+    if _linux_unavailable(output):
+        return "Nearby network scan unavailable.\n" + output
+    return "=== Nearby Wireless Networks (Linux) ===\n\n" + output
+
+
+def get_linux_ip_config():
+    """Get Linux interface addresses, routes, and resolver state."""
+    addresses = _run_cmd(["ip", "-brief", "address"])
+    routes = _run_cmd(["ip", "route", "show"], timeout=10)
+    resolver = _run_cmd(["resolvectl", "status"], timeout=10)
+
+    sections = ["=== IP Configuration (Linux) ===\n"]
+    if not _linux_unavailable(addresses):
+        sections.append("── Addresses ──\n" + addresses)
+    if not _linux_unavailable(routes):
+        sections.append("── Routes ──\n" + routes)
+    if not _linux_unavailable(resolver):
+        sections.append("── Resolver ──\n" + resolver)
+    if len(sections) == 1:
+        sections.append("No Linux IP information was available.")
+    return "\n\n".join(sections) + "\n"
+
+
+def _linux_resolved_addresses(output):
+    """Extract IPv4/IPv6 addresses from resolvectl or getent output."""
+    return re.findall(
+        r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?![0-9A-Fa-f:])|"
+        r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{0,4}:){2,}[0-9A-Fa-f]{0,4}(?![0-9A-Fa-f:])",
+        output,
+    )
+
+
+def test_linux_dns_resolution():
+    """Test DNS using resolvectl, falling back to getent."""
+    targets = ["www.google.com", "dns.google", "login.microsoftonline.com"]
+    results = "=== DNS Resolution Test (Linux) ===\n\n"
+
+    for target in targets:
+        output = _run_cmd(["resolvectl", "query", target], timeout=5)
+        if _linux_unavailable(output):
+            output = _run_cmd(["getent", "ahosts", target], timeout=5)
+        addresses = _linux_resolved_addresses(output) if not _linux_unavailable(output) else []
+        if addresses:
+            results += f"  ✓ {target} → {', '.join(dict.fromkeys(addresses))}\n"
+        else:
+            results += f"  ✗ {target} → FAILED to resolve\n"
+
+    return results
+
+
+def _linux_default_route(route_output):
+    """Return (gateway, interface) from `ip route show default`."""
+    match = re.search(
+        r"^default\s+via\s+(\S+)(?:\s+dev\s+(\S+))?",
+        route_output,
+        re.MULTILINE,
+    )
+    return (match.group(1), match.group(2)) if match else (None, None)
+
+
+def _linux_ping_stats(output):
+    """Return (packet_loss_percent, average_ms) from Linux ping output."""
+    loss_match = re.search(r"(\d+(?:\.\d+)?)%\s+packet loss", output)
+    avg_match = re.search(r"=\s*[\d.]+/([\d.]+)/[\d.]+/[\d.]+", output)
+    loss = float(loss_match.group(1)) if loss_match else None
+    average = float(avg_match.group(1)) if avg_match else None
+    return loss, average
+
+
+def test_linux_gateway_ping():
+    """Ping the Linux default gateway."""
+    route_output = _run_cmd(["ip", "route", "show", "default"])
+    gateway, interface = _linux_default_route(route_output)
+    if not gateway:
+        return "=== Gateway Ping Test (Linux) ===\n\n  Could not determine default gateway.\n"
+
+    output = _run_cmd(["ping", "-c", "4", "-W", "1", gateway], timeout=15)
+    results = f"=== Gateway Ping Test (Linux: {gateway} via {interface or 'unknown'}) ===\n\n"
+    results += output + "\n"
+    loss, average = _linux_ping_stats(output)
+    if loss is not None and loss > 0:
+        results += f"\n⚠ Packet loss ({loss:g}%) — check the local link or gateway.\n"
+    if average is not None and average > 50:
+        results += f"⚠ High latency ({average:g}ms) — expected <10ms for local gateway.\n"
+    elif average is not None and loss == 0:
+        results += f"  ✓ Gateway reachable, {average:g}ms — healthy.\n"
+    elif output.startswith("["):
+        results += "✗ Gateway ping failed.\n"
+    return results
+
+
+def get_linux_nic_info():
+    """Get interface state and connection details through NetworkManager."""
+    output = _run_cmd([
+        "nmcli", "-f", "DEVICE,TYPE,STATE,CONNECTION",
+        "device", "status",
+    ])
+    if _linux_unavailable(output):
+        return "=== NIC Information (Linux) ===\n\n" + output
+    return "=== NIC Information (Linux) ===\n\n" + output + "\n"
+
+
+def get_linux_wlan_profiles():
+    """List NetworkManager connection profiles without exposing secrets."""
+    output = _run_cmd([
+        "nmcli", "-f", "NAME,UUID,TYPE,DEVICE",
+        "connection", "show",
+    ])
+    if _linux_unavailable(output):
+        return "WLAN profile information unavailable.\n" + output
+    return "=== Saved Network Profiles (Linux) ===\n\n" + output + "\n"
+
+
 def get_wifi_snapshot():
     """Get current Wi-Fi interface status via netsh. No admin needed."""
+    if sys.platform.startswith("linux"):
+        return get_linux_wifi_snapshot()
     output = _run_cmd(["netsh", "wlan", "show", "interfaces"])
     if not output or output.startswith("["):
         return "Wi-Fi interface information unavailable.\n" + output
@@ -335,6 +481,8 @@ def get_wifi_snapshot():
 
 def get_nearby_networks():
     """List nearby wireless networks. No admin needed."""
+    if sys.platform.startswith("linux"):
+        return get_linux_nearby_networks()
     output = _run_cmd(["netsh", "wlan", "show", "networks", "mode=bssid"])
     if not output or output.startswith("["):
         return "Nearby network scan unavailable.\n" + output
@@ -343,6 +491,8 @@ def get_nearby_networks():
 
 def get_ip_config():
     """Get IP configuration. No admin needed."""
+    if sys.platform.startswith("linux"):
+        return get_linux_ip_config()
     output = _run_cmd(["ipconfig", "/all"])
     if not output or output.startswith("["):
         return "IP configuration unavailable.\n" + output
@@ -361,6 +511,8 @@ def get_ip_config():
 
 def test_dns_resolution():
     """Test DNS resolution for common targets. No admin needed."""
+    if sys.platform.startswith("linux"):
+        return test_linux_dns_resolution()
     targets = ["www.google.com", "dns.google", "login.microsoftonline.com"]
     results = "=== DNS Resolution Test ===\n\n"
 
@@ -378,6 +530,8 @@ def test_dns_resolution():
 
 def test_gateway_ping():
     """Ping default gateway. No admin needed."""
+    if sys.platform.startswith("linux"):
+        return test_linux_gateway_ping()
     ipconfig = _run_cmd(["ipconfig"])
     gateway_match = re.search(r"Default Gateway.*?:\s*([\d.]+)", ipconfig)
     if not gateway_match:
@@ -406,6 +560,8 @@ def test_gateway_ping():
 
 def get_nic_driver_info():
     """Get Wi-Fi NIC adapter and driver info. No admin needed."""
+    if sys.platform.startswith("linux"):
+        return get_linux_nic_info()
     ps_cmd = (
         "Get-NetAdapter | Where-Object {$_.PhysicalMediaType -match 'Wireless|Native 802.11' -or "
         "$_.Name -match 'Wi-Fi|Wireless|WLAN'} | "
@@ -451,6 +607,8 @@ def get_nic_driver_info():
 
 def get_wlan_profiles():
     """Get WLAN profile configuration. No admin needed (keys excluded)."""
+    if sys.platform.startswith("linux"):
+        return get_linux_wlan_profiles()
     list_output = _run_cmd(["netsh", "wlan", "show", "profiles"])
     if not list_output or "is not running" in list_output:
         return "WLAN service not running or no profiles found.\n"
@@ -506,6 +664,12 @@ def get_certificate_inventory():
     Checks user store and machine store. No admin needed for user store.
     Machine store may be limited without admin but usually readable.
     """
+    if sys.platform.startswith("linux"):
+        return (
+            "=== Certificate Inventory (Linux) ===\n\n"
+            "Linux certificate-store inventory is not implemented yet.\n"
+            "The current Linux diagnostics avoid invoking Windows PowerShell.\n"
+        )
     results = "=== Certificate Inventory (802.1X Relevant) ===\n\n"
 
     # User certificate store
@@ -595,6 +759,12 @@ def generate_wlan_report():
     The report is generated at C:\\ProgramData\\Microsoft\\Windows\\WlanReport\\
     No admin needed to generate.
     """
+    if sys.platform.startswith("linux"):
+        return (
+            "=== WLAN Report ===\n\n"
+            "The Windows WLAN report is not available on Linux.\n"
+            "Use the Linux journal and live diagnostics for current evidence.\n"
+        )
     results = "=== Windows WLAN Report ===\n\n"
 
     # Generate the report
@@ -1638,6 +1808,19 @@ def _self_check():
     assert linux_events[0].source == "Linux/journalctl/NetworkManager"
     assert linux_events[0].severity == "WARNING"
     assert linux_events[0].message == "Wi-Fi association lost"
+
+    # Test Linux route and ping parsing without requiring a live network
+    gateway, interface = _linux_default_route(
+        "default via 192.168.1.1 dev wlp2s0 proto dhcp src 192.168.1.20"
+    )
+    assert gateway == "192.168.1.1"
+    assert interface == "wlp2s0"
+    loss, average = _linux_ping_stats(
+        "4 packets transmitted, 4 received, 0% packet loss\n"
+        "rtt min/avg/max/mdev = 1.000/2.500/4.000/0.500 ms"
+    )
+    assert loss == 0
+    assert average == 2.5
 
     # Test NetworkProfile fallback
     np_events = [
