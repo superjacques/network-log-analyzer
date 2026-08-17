@@ -1,0 +1,36 @@
+  > Expanded the tool from a Windows-specific utility into a
+  > platform-aware network troubleshooting application that can run
+  > on Windows, macOS, and Linux.
+
+  Main improvements:
+
+  - Added native log collection for Linux and macOS.
+
+  - Added macOS and Linux network diagnostics instead of trying to
+    run Windows commands.
+
+  - Created a shared interface so the tool presents the same general
+    information across platforms.
+
+  - Added macOS network evidence reports to replace the Windows-only
+    WLAN report.
+
+  - Fixed overlapping event codes by considering both the event
+    number and its source. The same code can mean different things
+    in different logs.
+
+  - Improved error reporting when operating-system commands fail or
+    are unavailable.
+
+  - Limited Linux log searches to relevant network and kernel
+    messages so scans do not become excessively large or slow.
+
+  - Fixed macOS Tkinter rendering, layout, button spacing, tab
+    selection, and screen-size issues.
+
+  - Improved dependency and documentation management with
+    pyproject.toml, requirements.txt, uv.lock, and an updated
+    README.
+
+  - Added more self-checks and cross-platform parsing tests.
+
