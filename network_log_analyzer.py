@@ -1612,6 +1612,15 @@ class NetworkLogAnalyzerApp:
         self._build_ui()
 
     def _build_ui(self):
+        # The system Aqua Tk theme can render as an empty surface on some
+        # macOS/Python combinations. Use ttk's portable theme there.
+        if sys.platform.startswith("darwin"):
+            try:
+                ttk.Style(self.root).theme_use("clam")
+                self.root.configure(background="#f0f0f0")
+            except tk.TclError:
+                pass
+
         # --- Top control bar ---
         ctrl_frame = ttk.Frame(self.root, padding=5)
         ctrl_frame.pack(fill=tk.X)

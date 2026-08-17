@@ -169,6 +169,8 @@ On Linux, the implemented live diagnostics use `nmcli`, `ip`, `resolvectl`/`gete
 
 On macOS, the bundled system Tcl/Tk may print a deprecation warning. The application suppresses that warning, but a newer Python distribution with a current Tk runtime is recommended if the GUI renders incorrectly.
 
+The application also selects the portable `clam` ttk theme on macOS because some older Aqua Tk combinations can render the window surface without visible themed controls.
+
 ## Running it
 
 Install the current dependencies:
