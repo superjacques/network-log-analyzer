@@ -69,6 +69,12 @@ Most of the highest-value work can be completed on Linux or macOS:
 
 The main work that cannot be honestly validated without Windows is the actual `pywin32` Event Log integration, Windows provider/event mappings, PowerShell output, permissions, and the WLAN report. Those should be marked as Windows-unverified until a Windows runner or test machine is available.
 
+### Completed quick wins
+
+- Declared `pywin32` as a Windows-only dependency in both packaging files and refreshed `uv.lock`.
+- Made the command runner tolerate platforms where Windows’ `CREATE_NO_WINDOW` flag does not exist.
+- Verified the self-check and a real non-Windows command-runner invocation on Linux.
+
 ## Cross-platform expansion
 
 Yes, the project can be expanded to macOS and Linux. The Tkinter interface and much of the reporting layer can be shared, but the current command and event-log code must be separated behind platform-specific collectors.

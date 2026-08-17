@@ -257,9 +257,12 @@ NIC_SOURCE_PATTERNS = re.compile(
 def _run_cmd(cmd, timeout=15):
     """Run a command and return stdout. Returns error string on failure."""
     try:
+        # CREATE_NO_WINDOW exists only on Windows. Keep the runner importable
+        # and testable on other platforms while preserving Windows behavior.
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
-            creationflags=subprocess.CREATE_NO_WINDOW
+            creationflags=creationflags
         )
         return result.stdout.strip()
     except subprocess.TimeoutExpired:
