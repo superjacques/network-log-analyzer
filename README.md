@@ -6,7 +6,7 @@ The project combines platform-native log collection with live network diagnostic
 
 ## Current status
 
-This is an early cross-platform prototype implemented primarily in [`network_log_analyzer.py`](network_log_analyzer.py). The built-in synthetic self-check passes and the module compiles with Python 3.12. Linux has received local testing; macOS and Windows still require direct validation on those operating systems.
+This is an early cross-platform prototype implemented primarily in [`network_log_analyzer.py`](network_log_analyzer.py). The built-in synthetic self-check passes and the module compiles with Python 3.12. Linux and macOS have received local validation; Windows still requires direct validation on that operating system.
 
 The application uses:
 
@@ -18,25 +18,33 @@ The application uses:
 
 The interface and normalized event model are shared, while each operating system retains its native collectors and capabilities.
 
-## Assessment of `requirements.txt`
+## Python and Tk requirements
 
-The current [`requirements.txt`](requirements.txt) is not a product-requirements document. It is a dependency file containing one package:
+Python and Tkinter are separate requirements. This project requires:
+
+- Python 3.11 or newer.
+- A working Tkinter installation built for the same Python interpreter used to launch the app.
+- The operating-system tools listed above.
+
+[`requirements.txt`](requirements.txt) contains only the platform-specific Python package:
 
 ```text
 pywin32==306
 ```
 
-That dependency is Windows-specific and is only needed by the current Windows Event Log reader. It should not block Linux or macOS development, but it does mean the current file is not a complete cross-platform dependency definition.
+That dependency is Windows-specific and is only needed by the Windows Event Log reader. Linux and macOS skip it automatically because of the platform marker. The same dependency is declared in [`pyproject.toml`](pyproject.toml).
 
-The likely future arrangement is:
+Tkinter is not installed from `requirements.txt`:
 
-- Put shared runtime dependencies in `pyproject.toml`.
-- Add a platform marker for `pywin32`, for example `pywin32==306; sys_platform == 'win32'`.
-- Keep development tools such as pytest, Ruff, and mypy in a separate development dependency group.
-- Document operating-system tools separately because `nmcli`, `networksetup`, `journalctl`, PowerShell, and similar utilities are not Python packages.
-- Treat Tkinter as a system/runtime capability: it is part of many Python installations, but Linux distributions may require a separate package such as `python3-tk`.
+- On Windows, use a normal Python installer that includes Tcl/Tk.
+- On macOS, use a current Python distribution with a matching Tk runtime; the older system Tk supplied by macOS may produce deprecation warnings or rendering problems.
+- On Debian/Ubuntu Linux, install the system package `python3-tk` if importing `tkinter` fails. Other distributions provide an equivalent Tk package.
 
-The platform marker means Linux and macOS installations skip `pywin32` automatically.
+To verify the active interpreter has Tkinter, run:
+
+```bash
+python3 -c "import tkinter; print(tkinter.TkVersion)"
+```
 
 ## Publication and ownership assessment
 
@@ -80,7 +88,7 @@ The main work that cannot be honestly validated without Windows is the actual `p
 - Added an initial Linux `journalctl` collector for network-related events; Linux scanning now populates the existing event view.
 - Added Linux live diagnostics for NetworkManager state/profiles, nearby Wi-Fi, IP/routes, DNS, and gateway ping.
 - Added initial Linux issue detection for authentication, DHCP, DNS, disconnect, and wireless-driver messages.
-- Added an initial macOS Unified Log collector and message-based network issue detection; macOS behavior remains unverified without a Mac test run.
+- Added a macOS Unified Log collector, native diagnostics, and a classic-Tk full interface; the macOS interface has now been visually validated.
 - Bounded Linux journal collection to network services and kernel messages so high-volume unrelated logs do not trigger false “journal unavailable” timeouts.
 
 ## Cross-platform expansion
@@ -105,7 +113,7 @@ Yes, the project can be expanded to macOS and Linux. The Tkinter interface and m
 | Logs | Windows Event Log | Unified Logging via `log show` | `journalctl`, NetworkManager logs, kernel logs, or syslog |
 | Certificates | Windows certificate stores / PowerShell | Keychain / `security` | NSS, OpenSSL, Java, or distribution-specific stores |
 | WLAN profiles | `netsh wlan show profiles` | Network preferences / plist data | NetworkManager connection profiles or `wpa_supplicant` |
-| WLAN report | Windows WLAN report | No direct equivalent; collect targeted log and interface evidence | No direct equivalent; collect targeted log and interface evidence |
+| Network report | Windows WLAN report | Native evidence report from Wi-Fi, routes, DNS, and Unified Log | Native evidence from journal and live diagnostics |
 
 There is no universal event-ID mapping across these operating systems. The current Windows event IDs must remain in a Windows provider module. macOS and Linux collectors should translate their native records into a common event vocabulary, retaining the original source, identifier, message, and raw evidence.
 
@@ -118,7 +126,7 @@ Refactor the single file into four layers:
 3. **Platform-neutral analysis** — correlation, timelines, evidence linking, confidence, and recommendations.
 4. **Presentation** — Tkinter UI, text export, and eventually JSON/CLI output.
 
-Collectors should advertise capabilities instead of assuming every platform supports every diagnostic. For example, a macOS collector can report that a Windows-style WLAN report is unavailable while still providing Wi-Fi state, routes, DNS, certificates, and unified-log evidence.
+Collectors should advertise capabilities instead of assuming every platform supports every diagnostic. The macOS collector provides a native evidence report rather than attempting to reproduce the Windows-specific WLAN report format.
 
 ### Suggested rollout
 
@@ -162,11 +170,11 @@ The diagnostics workflow collects:
 - Nearby access points
 - Saved WLAN profile details
 - Client-authentication certificates
-- The Windows WLAN report
+- A platform-appropriate network evidence report
 
 The results can be exported as a text report from the GUI.
 
-On Linux, the implemented live diagnostics use `nmcli`, `ip`, `resolvectl`/`getent`, and `ping`. Linux certificate inventory and the Windows WLAN report remain explicitly unsupported for now. Linux issue detection is message-based and intentionally lower-confidence than provider-specific Windows analysis.
+On Linux, the implemented live diagnostics use `nmcli`, `ip`, `resolvectl`/`getent`, and `ping`. Linux certificate inventory remains explicitly unsupported for now. Linux issue detection is message-based and intentionally lower-confidence than provider-specific Windows analysis.
 
 On macOS, the bundled system Tcl/Tk may print a deprecation warning. The application suppresses that warning and selects Tk's portable `clam` theme. A newer Python distribution with a current Tk runtime is still recommended if the GUI renders incorrectly.
 
@@ -213,11 +221,7 @@ These are current limitations, not completed features. They are ordered roughly 
 
 ### High priority
 
-1. **Packaging does not declare the runtime dependency.**
-
-   [`requirements.txt`](requirements.txt) contains `pywin32`, but [`pyproject.toml`](pyproject.toml) declares `dependencies = []`. Installing the project through package tooling will not necessarily install the library required for event scanning.
-
-2. **Event severity is keyed only by event ID.**
+1. **Event severity is keyed only by event ID.**
 
    Windows event IDs are provider/channel-specific. IDs such as `1002` and `1003` are used by multiple mappings in this project, but global `ERROR_EVENT_IDS` and `WARNING_EVENT_IDS` sets classify them without considering their source. This can turn warnings into errors and generate the wrong recommendations.
 
@@ -277,7 +281,6 @@ The roadmap is deliberately incremental. Each phase should leave the application
 
 ### Phase 1 — Make the existing prototype trustworthy
 
-- Declare `pywin32` in `pyproject.toml` and establish one dependency-management path.
 - Split event metadata into provider/channel-aware definitions.
 - Store severity and issue classification with each event mapping instead of global ID sets.
 - Render event messages using the Windows provider metadata where available.
