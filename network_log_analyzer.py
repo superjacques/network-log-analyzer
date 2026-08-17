@@ -1611,7 +1611,64 @@ class NetworkLogAnalyzerApp:
         self.wlan_report_content = ""
         self._build_ui()
 
+    def _build_macos_compat_ui(self):
+        """Build a classic-Tk fallback for Macs with broken ttk rendering."""
+        self.root.configure(background="white")
+
+        controls = tk.Frame(self.root, background="white", padx=8, pady=8)
+        controls.pack(fill=tk.X)
+
+        tk.Label(
+            controls,
+            text="Network Log Analyzer — macOS compatibility mode",
+            background="white",
+            foreground="black",
+            anchor=tk.W,
+        ).pack(fill=tk.X, pady=(0, 6))
+
+        row = tk.Frame(controls, background="white")
+        row.pack(fill=tk.X)
+        tk.Label(row, text="Hours back:", background="white", foreground="black").pack(side=tk.LEFT)
+        self.hours_var = tk.StringVar(value="24")
+        tk.Spinbox(row, from_=1, to=168, width=5, textvariable=self.hours_var).pack(
+            side=tk.LEFT, padx=(4, 10)
+        )
+        self.scan_btn = tk.Button(row, text="Scan Logs", command=self._start_scan)
+        self.scan_btn.pack(side=tk.LEFT, padx=4)
+        self.diag_btn = tk.Button(row, text="Run Diagnostics", command=self._start_diagnostics)
+        self.diag_btn.pack(side=tk.LEFT, padx=4)
+        self.export_btn = tk.Button(row, text="Export Report", command=self._export_report)
+        self.export_btn.pack(side=tk.LEFT, padx=4)
+
+        self.status_var = tk.StringVar(value="Ready — Scan Logs or Run Diagnostics")
+        tk.Label(
+            controls,
+            textvariable=self.status_var,
+            background="white",
+            foreground="black",
+            anchor=tk.W,
+        ).pack(fill=tk.X, pady=(6, 0))
+
+        self.mac_output_text = scrolledtext.ScrolledText(
+            self.root,
+            wrap=tk.WORD,
+            background="white",
+            foreground="black",
+            insertbackground="black",
+            font=("Menlo", 10),
+        )
+        self.mac_output_text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        self.mac_output_text.insert(
+            "1.0",
+            "macOS compatibility mode is active.\n"
+            "Choose Scan Logs or Run Diagnostics.\n",
+        )
+
     def _build_ui(self):
+        if sys.platform.startswith("darwin"):
+            self._build_macos_compat_ui()
+            return
+
         # The system Aqua Tk theme can render as an empty surface on some
         # macOS/Python combinations. Use ttk's portable theme there.
         if sys.platform.startswith("darwin"):
@@ -1836,6 +1893,34 @@ class NetworkLogAnalyzerApp:
         self.root.after(0, lambda: self._populate_logs_ui(timelines, issues))
 
     def _populate_logs_ui(self, timelines, issues):
+        if hasattr(self, "mac_output_text"):
+            lines = ["=== macOS Scan Results ===", ""]
+            if issues:
+                lines.append("── Issues & Recommendations ──")
+                for index, issue in enumerate(issues, 1):
+                    lines.append(f"{index}. {issue}")
+                lines.append("")
+            if timelines:
+                lines.append("── Connection Timeline ──")
+                for start, end, duration, outcome, phases in timelines:
+                    lines.append(
+                        f"{start:%Y-%m-%d %H:%M:%S}  {duration:.1f}s  {outcome}  {phases}"
+                    )
+                lines.append("")
+            lines.append(f"── All Events ({len(self.events)}) ──")
+            for event in self.events:
+                lines.append(
+                    f"{event.timestamp:%Y-%m-%d %H:%M:%S}  {event.severity:<7} "
+                    f"{event.source}  {event.message[:240]}"
+                )
+            self.mac_output_text.delete("1.0", tk.END)
+            self.mac_output_text.insert("1.0", "\n".join(lines))
+            self.status_var.set(
+                f"Done — {len(self.events)} event(s), {len(timelines)} connection attempt(s)"
+            )
+            self.scan_btn.configure(state=tk.NORMAL)
+            return
+
         # Clear
         for item in self.timeline_tree.get_children():
             self.timeline_tree.delete(item)
@@ -1913,6 +1998,23 @@ class NetworkLogAnalyzerApp:
 
     def _populate_diagnostics_ui(self, diag_text, cert_text,
                                   profile_text, wlan_report):
+        if hasattr(self, "mac_output_text"):
+            self.mac_output_text.delete("1.0", tk.END)
+            self.mac_output_text.insert(
+                "1.0",
+                "=== macOS Diagnostics ===\n\n"
+                + diag_text
+                + "\n\n=== Certificates ===\n\n"
+                + cert_text
+                + "\n\n=== Network Profiles ===\n\n"
+                + profile_text
+                + "\n\n=== WLAN Report ===\n\n"
+                + wlan_report,
+            )
+            self.status_var.set("Diagnostics complete")
+            self.diag_btn.configure(state=tk.NORMAL)
+            return
+
         self.diag_text.delete("1.0", tk.END)
         self.diag_text.insert("1.0", diag_text)
 
@@ -1953,6 +2055,9 @@ class NetworkLogAnalyzerApp:
             messagebox.showerror("Export Failed", f"Could not write file:\n{e}")
 
     def _build_report(self):
+        if hasattr(self, "mac_output_text"):
+            return self.mac_output_text.get("1.0", tk.END).strip() + "\n"
+
         lines = []
         lines.append("=" * 70)
         lines.append("WINDOWS NETWORK DIAGNOSTIC REPORT — ENTERPRISE WIRELESS")
