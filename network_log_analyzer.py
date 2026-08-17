@@ -1601,8 +1601,12 @@ class NetworkLogAnalyzerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Windows Network Log Analyzer — Enterprise Wireless")
-        self.root.geometry("1200x850")
-        self.root.minsize(1000, 700)
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        window_width = min(1200, max(640, screen_width - 80))
+        window_height = min(850, max(480, screen_height - 120))
+        self.root.geometry(f"{window_width}x{window_height}")
+        self.root.minsize(min(800, window_width), min(500, window_height))
 
         self.events = []
         self.diagnostics_text_content = ""
@@ -1614,9 +1618,12 @@ class NetworkLogAnalyzerApp:
     def _build_macos_compat_ui(self):
         """Build a classic-Tk fallback for Macs with broken ttk rendering."""
         self.root.configure(background="white")
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_rowconfigure(2, weight=1)
 
         controls = tk.Frame(self.root, background="white", padx=8, pady=8)
-        controls.pack(fill=tk.X)
+        controls.grid(row=0, column=0, sticky="ew")
+        controls.grid_columnconfigure(0, weight=1)
 
         tk.Label(
             controls,
@@ -1625,10 +1632,10 @@ class NetworkLogAnalyzerApp:
             foreground="black",
             font=("Helvetica", 16, "bold"),
             anchor=tk.W,
-        ).pack(fill=tk.X, pady=(0, 6))
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 6))
 
         row = tk.Frame(controls, background="white")
-        row.pack(fill=tk.X)
+        row.grid(row=1, column=0, sticky="ew")
         tk.Label(row, text="Hours back:", background="white", foreground="black").pack(side=tk.LEFT)
         self.hours_var = tk.StringVar(value="24")
         tk.Spinbox(row, from_=1, to=168, width=5, textvariable=self.hours_var).pack(
@@ -1643,7 +1650,7 @@ class NetworkLogAnalyzerApp:
 
         self.status_var = tk.StringVar(value="Ready — Scan Logs or Run Diagnostics")
         tk.Label(
-            controls,
+            self.root,
             textvariable=self.status_var,
             background="white",
             foreground="black",
@@ -1652,21 +1659,27 @@ class NetworkLogAnalyzerApp:
             padx=6,
             pady=4,
             anchor=tk.W,
-        ).pack(fill=tk.X, pady=(6, 0))
+        ).grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
 
-        self.mac_output_text = scrolledtext.ScrolledText(
-            self.root,
+        output_frame = tk.Frame(self.root, background="#808080", borderwidth=1)
+        output_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        output_frame.grid_columnconfigure(0, weight=1)
+        output_frame.grid_rowconfigure(0, weight=1)
+
+        self.mac_output_text = tk.Text(
+            output_frame,
             wrap=tk.WORD,
             background="white",
             foreground="black",
             insertbackground="black",
             relief=tk.SUNKEN,
             borderwidth=1,
-            height=30,
-            width=100,
             font=("Menlo", 10),
         )
-        self.mac_output_text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        output_scrollbar = tk.Scrollbar(output_frame, command=self.mac_output_text.yview)
+        self.mac_output_text.configure(yscrollcommand=output_scrollbar.set)
+        self.mac_output_text.grid(row=0, column=0, sticky="nsew")
+        output_scrollbar.grid(row=0, column=1, sticky="ns")
         self.mac_output_text.insert(
             "1.0",
             "macOS compatibility mode is active.\n"
