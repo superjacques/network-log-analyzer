@@ -1144,8 +1144,92 @@ def analyze_connection_timeline(events):
     return timelines
 
 
+def find_linux_issues(events):
+    """Find network problems in normalized Linux journal events."""
+    service_pattern = re.compile(
+        r"(NetworkManager|wpa[_-]?supplicant|iwd|systemd-(?:networkd|resolved)|"
+        r"dhclient|dhcpcd|connman|kernel)",
+        re.IGNORECASE,
+    )
+    linux_events = [
+        e for e in events
+        if e.source.startswith("Linux/") and service_pattern.search(e.source)
+    ]
+    failure_words = re.compile(
+        r"(fail|failed|failure|error|reject|denied|"
+        r"unreachable|lost|deauth|disassoc|disconnect|link down)",
+        re.IGNORECASE,
+    )
+    timeout_words = re.compile(r"(timeout|timed out)", re.IGNORECASE)
+
+    def matching(pattern):
+        return [
+            event for event in linux_events
+            if pattern.search(event.message) and (
+                failure_words.search(event.message)
+                or (
+                    timeout_words.search(event.message)
+                    and re.search(
+                        r"(wait|lease|auth|handshake|server|network|obtain)",
+                        event.message,
+                        re.IGNORECASE,
+                    )
+                )
+            )
+        ]
+
+    issues = []
+    auth = matching(re.compile(r"(auth|wpa|eap|handshake)", re.IGNORECASE))
+    dhcp = matching(re.compile(r"(dhcp|dhcpcd)", re.IGNORECASE))
+    dns = matching(re.compile(r"(dns|resolve|resolver)", re.IGNORECASE))
+    disconnects = matching(
+        re.compile(r"(disconnect|deauth|disassoc|carrier|link)", re.IGNORECASE)
+    )
+    driver = [
+        event for event in linux_events
+        if re.search(r"(iwlwifi|firmware|driver|wlan|wireless)", event.message, re.IGNORECASE)
+        and (event.severity in ("ERROR", "WARNING") or failure_words.search(event.message))
+    ]
+
+    if auth:
+        issues.append(
+            f"LINUX AUTHENTICATION ISSUES: {len(auth)} event(s). "
+            "Check Wi-Fi credentials, WPA/EAP configuration, and access-point logs."
+        )
+    if dhcp:
+        issues.append(
+            f"LINUX DHCP ISSUES: {len(dhcp)} event(s). "
+            "Check the DHCP service, VLAN, lease availability, and NetworkManager state."
+        )
+    if dns:
+        issues.append(
+            f"LINUX DNS ISSUES: {len(dns)} event(s). "
+            "Check resolver configuration, DNS reachability, and split-DNS settings."
+        )
+    if disconnects:
+        issues.append(
+            f"LINUX DISCONNECTS: {len(disconnects)} event(s). "
+            "Check signal, power management, roaming, and driver messages."
+        )
+    if driver:
+        issues.append(
+            f"LINUX DRIVER/WIRELESS WARNINGS: {len(driver)} event(s). "
+            "Review kernel, firmware, and wireless-driver messages in All Events."
+        )
+
+    if not issues:
+        if linux_events:
+            issues.append("No recognized Linux network failures detected in the analyzed time window.")
+        else:
+            issues.append("No network-related Linux journal events found in the analyzed time window.")
+    return issues
+
+
 def find_issues(events):
     """Identify potential issues from the event stream."""
+    if any(e.source.startswith("Linux/") for e in events):
+        return find_linux_issues(events)
+
     issues = []
     error_events = [e for e in events if e.severity == "ERROR"]
 
@@ -1808,6 +1892,25 @@ def _self_check():
     assert linux_events[0].source == "Linux/journalctl/NetworkManager"
     assert linux_events[0].severity == "WARNING"
     assert linux_events[0].message == "Wi-Fi association lost"
+
+    linux_issue_events = [
+        LogEvent(now, 0, "Linux/journalctl/wpa_supplicant", "Linux: wpa_supplicant",
+                 "", "WPA authentication failed", "ERROR"),
+        LogEvent(now, 0, "Linux/journalctl/dhclient", "Linux: dhclient",
+                 "", "DHCP timeout waiting for lease", "ERROR"),
+        LogEvent(now, 0, "Linux/journalctl/kernel", "Linux: kernel",
+                 "", "iwlwifi firmware error", "ERROR"),
+    ]
+    linux_issues = find_issues(linux_issue_events)
+    assert any("AUTHENTICATION" in issue for issue in linux_issues)
+    assert any("DHCP" in issue for issue in linux_issues)
+    assert any("DRIVER" in issue for issue in linux_issues)
+    normal_linux_event = LogEvent(
+        now, 0, "Linux/journalctl/NetworkManager", "Linux: NetworkManager", "",
+        "dhcp4: beginning transaction (timeout in 45 seconds)", "INFO",
+    )
+    normal_issues = find_issues([normal_linux_event])
+    assert not any("DHCP ISSUES" in issue for issue in normal_issues)
 
     # Test Linux route and ping parsing without requiring a live network
     gateway, interface = _linux_default_route(
