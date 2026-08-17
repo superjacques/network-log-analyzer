@@ -1765,7 +1765,7 @@ class NetworkLogAnalyzerApp:
 
         tab_bar = tk.Frame(self.root, background="white", padx=8)
         tab_bar.grid(row=1, column=0, sticky="ew")
-        for column in range(4):
+        for column in range(7):
             tab_bar.grid_columnconfigure(column, weight=1)
 
         content = tk.Frame(self.root, background="white", padx=8)
@@ -1783,11 +1783,12 @@ class NetworkLogAnalyzerApp:
         for index, name in enumerate(tab_names):
             button = tk.Button(
                 tab_bar, text=name, command=lambda i=index: self._select_macos_tab(i),
-                padx=4, pady=3,
+                padx=1, pady=2, font=("Helvetica", 9),
+                background="#f0f0f0", activebackground="#dcecff",
             )
             button.grid(
-                row=index // 4, column=index % 4, sticky="ew",
-                padx=(0 if index % 4 == 0 else 3, 3), pady=(0, 3),
+                row=0, column=index, sticky="ew",
+                padx=(0 if index == 0 else 2, 2), pady=(0, 3),
             )
             self._mac_tab_buttons.append(button)
             frame = tk.Frame(content, background="white")
@@ -1820,6 +1821,7 @@ class NetworkLogAnalyzerApp:
             button.configure(
                 text=(f"✓ {self._mac_tab_names[i]}" if selected else self._mac_tab_names[i]),
                 relief=tk.SUNKEN if selected else tk.RAISED,
+                background="#dcecff" if selected else "#f0f0f0",
             )
         self._mac_selected_tab = index
 
