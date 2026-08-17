@@ -216,19 +216,38 @@ CERT_LIFECYCLE_EVENTS = {
     1008: ("Cert Renewal Failed", "Certificate renewal failed"),
 }
 
-ERROR_EVENT_IDS = {
-    8003, 8006, 8015, 11002, 11006, 12013, 20002,
-    50039, 50040, 1003, 15502,
-    2003, 2102,
-    3, 6,
-    30, 41, 50, 53, 82,
-    5001, 5002, 5004, 5007,
-    1002, 1004, 1008,
-}
-WARNING_EVENT_IDS = {
-    8002, 10001, 1002, 12011, 12000, 4, 5,
-    27, 36, 5000,
-    1003, 1006,
+EVENT_SEVERITY_BY_LOG = {
+    "Microsoft-Windows-WLAN-AutoConfig/Operational": {
+        8002: "WARNING", 8003: "ERROR", 8006: "ERROR", 8015: "ERROR",
+        11002: "ERROR", 11006: "ERROR", 12000: "WARNING",
+        12011: "WARNING", 12013: "ERROR", 20002: "ERROR",
+    },
+    "Microsoft-Windows-Dhcp-Client/Admin": {
+        50039: "ERROR", 50040: "ERROR", 1003: "ERROR",
+    },
+    "Microsoft-Windows-NetworkProfile/Operational": {
+        10001: "WARNING",
+    },
+    "Microsoft-Windows-Dot3SVCM/Operational": {
+        15502: "ERROR",
+    },
+    "Microsoft-Windows-EapHost/Operational": {
+        2003: "ERROR", 2102: "ERROR",
+    },
+    "Microsoft-Windows-OneX/Operational": {
+        3: "ERROR", 4: "WARNING", 5: "WARNING", 6: "ERROR",
+    },
+    "Microsoft-Windows-CAPI2/Operational": {
+        30: "ERROR", 41: "ERROR", 50: "ERROR", 53: "ERROR", 82: "ERROR",
+    },
+    "Microsoft-Windows-CertificateServicesClient-Lifecycle-System/Operational": {
+        1002: "ERROR", 1003: "WARNING", 1004: "ERROR",
+        1006: "WARNING", 1008: "ERROR",
+    },
+    "System": {
+        27: "WARNING", 36: "WARNING", 5000: "WARNING",
+        5001: "ERROR", 5002: "ERROR", 5004: "ERROR", 5007: "ERROR",
+    },
 }
 
 LOG_SOURCES = [
@@ -248,6 +267,11 @@ LOG_SOURCES = [
 NIC_SOURCE_PATTERNS = re.compile(
     r"(netwtw|netwlv|netwns|netwsw|ndis|netvsc|rtl|realtek|qca|ath|mrvl|bcm|intel)", re.IGNORECASE
 )
+
+
+def _event_severity(log_name, event_id):
+    """Return severity using the event channel as well as the numeric ID."""
+    return EVENT_SEVERITY_BY_LOG.get(log_name, {}).get(event_id, "INFO")
 
 
 # =============================================================================
@@ -746,13 +770,8 @@ def read_events(log_name, event_map, hours_back=24):
                     msg_parts = record.StringInserts or []
                     message = " | ".join(msg_parts) if msg_parts else ""
 
-                    # Determine severity
-                    if eid in ERROR_EVENT_IDS:
-                        severity = "ERROR"
-                    elif eid in WARNING_EVENT_IDS:
-                        severity = "WARNING"
-                    else:
-                        severity = "INFO"
+                    # Event IDs are only meaningful within their channel.
+                    severity = _event_severity(log_name, eid)
 
                     # Extract reason code for WLAN disconnect/fail events
                     reason_code = None
@@ -1493,6 +1512,18 @@ def _self_check():
     # Test reason code extraction
     assert _extract_reason_code("Reason Code: 23") == 23
     assert _extract_reason_code("some | 15 | data") == 15
+
+    # Event IDs must be interpreted within their source channel
+    assert _event_severity("Microsoft-Windows-Dhcp-Client/Admin", 1002) == "INFO"
+    assert _event_severity(
+        "Microsoft-Windows-CertificateServicesClient-Lifecycle-System/Operational",
+        1002,
+    ) == "ERROR"
+    assert _event_severity("Microsoft-Windows-Dhcp-Client/Admin", 1003) == "ERROR"
+    assert _event_severity(
+        "Microsoft-Windows-CertificateServicesClient-Lifecycle-System/Operational",
+        1003,
+    ) == "WARNING"
 
     # Test NetworkProfile fallback
     np_events = [

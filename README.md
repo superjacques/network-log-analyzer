@@ -74,6 +74,7 @@ The main work that cannot be honestly validated without Windows is the actual `p
 - Declared `pywin32` as a Windows-only dependency in both packaging files and refreshed `uv.lock`.
 - Made the command runner tolerate platforms where Windows’ `CREATE_NO_WINDOW` flag does not exist.
 - Verified the self-check and a real non-Windows command-runner invocation on Linux.
+- Made event severity channel-aware and added regression coverage for reused IDs such as `1002` and `1003`.
 
 ## Cross-platform expansion
 
