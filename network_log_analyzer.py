@@ -1719,7 +1719,99 @@ class NetworkLogAnalyzerApp:
         self.wlan_report_content = ""
         self._build_ui()
 
+    def _build_macos_classic_ui(self):
+        """Build the complete Mac UI with classic Tk widgets."""
+        self.root.configure(background="white")
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_rowconfigure(2, weight=1)
+
+        controls = tk.Frame(self.root, background="white", padx=8, pady=8)
+        controls.grid(row=0, column=0, sticky="ew")
+        controls.grid_columnconfigure(0, weight=1)
+
+        self.status_var = tk.StringVar(value="Ready — Scan Logs or Run Diagnostics")
+        tk.Label(
+            controls, textvariable=self.status_var, background="white",
+            foreground="black", anchor=tk.W,
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 6))
+
+        action_row = tk.Frame(controls, background="white")
+        action_row.grid(row=1, column=0, sticky="ew")
+        tk.Label(action_row, text="Hours back:", background="white", foreground="black").grid(
+            row=0, column=0, padx=(0, 4), sticky="w"
+        )
+        self.hours_var = tk.StringVar(value="24")
+        tk.Entry(
+            action_row, textvariable=self.hours_var, width=6,
+            background="white", foreground="black", relief=tk.SUNKEN,
+        ).grid(row=0, column=1, padx=(0, 12), sticky="w")
+        self.scan_btn = tk.Button(action_row, text="Scan Logs", command=self._start_scan)
+        self.scan_btn.grid(row=0, column=2, padx=(0, 6), sticky="ew")
+        self.diag_btn = tk.Button(action_row, text="Run Diagnostics", command=self._start_diagnostics)
+        self.diag_btn.grid(row=0, column=3, padx=(0, 6), sticky="ew")
+        self.export_btn = tk.Button(action_row, text="Export Report", command=self._export_report)
+        self.export_btn.grid(row=0, column=4, sticky="ew")
+
+        tab_bar = tk.Frame(self.root, background="white", padx=8)
+        tab_bar.grid(row=1, column=0, sticky="ew")
+        for column in range(4):
+            tab_bar.grid_columnconfigure(column, weight=1)
+
+        content = tk.Frame(self.root, background="white", padx=8, pady=(4, 8))
+        content.grid(row=2, column=0, sticky="nsew")
+        content.grid_columnconfigure(0, weight=1)
+        content.grid_rowconfigure(0, weight=1)
+
+        tab_names = [
+            "Connection Timeline", "Issues & Recommendations", "All Events",
+            "Diagnostics", "Certificates", "Network Profiles", "Network Report",
+        ]
+        self._mac_tab_frames = []
+        self._mac_tab_buttons = []
+        for index, name in enumerate(tab_names):
+            button = tk.Button(
+                tab_bar, text=name, command=lambda i=index: self._select_macos_tab(i),
+                padx=4, pady=3,
+            )
+            button.grid(
+                row=index // 4, column=index % 4, sticky="ew",
+                padx=(0 if index % 4 == 0 else 3, 3), pady=(0, 3),
+            )
+            self._mac_tab_buttons.append(button)
+            frame = tk.Frame(content, background="white")
+            frame.grid(row=0, column=0, sticky="nsew")
+            self._mac_tab_frames.append(frame)
+
+        def text_area(frame, wrap=tk.WORD, font=("Menlo", 10)):
+            text = scrolledtext.ScrolledText(
+                frame, wrap=wrap, background="white", foreground="black",
+                insertbackground="black", font=font,
+            )
+            text.pack(fill=tk.BOTH, expand=True)
+            return text
+
+        self.timeline_text = text_area(self._mac_tab_frames[0], tk.NONE)
+        self.issues_text = text_area(self._mac_tab_frames[1])
+        self.events_text = text_area(self._mac_tab_frames[2], tk.NONE, ("Menlo", 9))
+        self.diag_text = text_area(self._mac_tab_frames[3], tk.WORD, ("Menlo", 9))
+        self.cert_text = text_area(self._mac_tab_frames[4], tk.WORD, ("Menlo", 9))
+        self.profile_text = text_area(self._mac_tab_frames[5], tk.WORD, ("Menlo", 9))
+        self.report_text = text_area(self._mac_tab_frames[6], tk.WORD, ("Menlo", 9))
+        self._select_macos_tab(0)
+
+    def _select_macos_tab(self, index):
+        for frame in self._mac_tab_frames:
+            frame.grid_remove()
+        self._mac_tab_frames[index].grid()
+        for i, button in enumerate(self._mac_tab_buttons):
+            button.configure(relief=tk.SUNKEN if i == index else tk.RAISED)
+        self._mac_selected_tab = index
+
     def _build_ui(self):
+        if sys.platform.startswith("darwin"):
+            self._build_macos_classic_ui()
+            return
+
         # The system Aqua Tk theme can render as an empty surface on some
         # macOS/Python combinations. Use ttk's portable theme there.
         if sys.platform.startswith("darwin"):
@@ -1944,6 +2036,40 @@ class NetworkLogAnalyzerApp:
         self.root.after(0, lambda: self._populate_logs_ui(timelines, issues))
 
     def _populate_logs_ui(self, timelines, issues):
+        if hasattr(self, "timeline_text"):
+            self.timeline_text.delete("1.0", tk.END)
+            self.issues_text.delete("1.0", tk.END)
+            self.events_text.delete("1.0", tk.END)
+            self.timeline_text.insert(
+                tk.END,
+                f"{'Start Time':<22}{'Duration':<12}{'Outcome':<12}Phases / Reason\n"
+                + "-" * 120 + "\n",
+            )
+            for start, end, duration, outcome, phases in timelines:
+                self.timeline_text.insert(
+                    tk.END,
+                    f"{start:%Y-%m-%d %H:%M:%S}  {duration:<10.1f}{outcome:<12}{phases}\n",
+                )
+            for i, issue in enumerate(issues, 1):
+                self.issues_text.insert(tk.END, f"{i}. {issue}\n\n")
+            self.events_text.insert(
+                tk.END,
+                f"{'Time':<22}{'Sev':<9}{'Source':<24}{'Event':<28}Details\n"
+                + "-" * 140 + "\n",
+            )
+            for ev in self.events:
+                source_short = ev.source.split("/")[0].replace("Microsoft-Windows-", "")
+                self.events_text.insert(
+                    tk.END,
+                    f"{ev.timestamp:%Y-%m-%d %H:%M:%S}  {ev.severity:<7}"
+                    f"{source_short:<24}{ev.label:<28}{ev.message[:200]}\n",
+                )
+            self.status_var.set(
+                f"Done — {len(self.events)} event(s), {len(timelines)} connection attempt(s)"
+            )
+            self.scan_btn.configure(state=tk.NORMAL)
+            return
+
         # Clear
         for item in self.timeline_tree.get_children():
             self.timeline_tree.delete(item)
@@ -2021,6 +2147,20 @@ class NetworkLogAnalyzerApp:
 
     def _populate_diagnostics_ui(self, diag_text, cert_text,
                                   profile_text, wlan_report):
+        if hasattr(self, "timeline_text"):
+            self.diag_text.delete("1.0", tk.END)
+            self.diag_text.insert("1.0", diag_text)
+            self.cert_text.delete("1.0", tk.END)
+            self.cert_text.insert("1.0", cert_text)
+            self.profile_text.delete("1.0", tk.END)
+            self.profile_text.insert("1.0", profile_text)
+            self.report_text.delete("1.0", tk.END)
+            self.report_text.insert("1.0", wlan_report)
+            self.status_var.set("Diagnostics complete")
+            self.diag_btn.configure(state=tk.NORMAL)
+            self._select_macos_tab(3)
+            return
+
         self.diag_text.delete("1.0", tk.END)
         self.diag_text.insert("1.0", diag_text)
 
@@ -2061,6 +2201,18 @@ class NetworkLogAnalyzerApp:
             messagebox.showerror("Export Failed", f"Could not write file:\n{e}")
 
     def _build_report(self):
+        if hasattr(self, "timeline_text"):
+            sections = [
+                self.timeline_text.get("1.0", tk.END).strip(),
+                self.issues_text.get("1.0", tk.END).strip(),
+                self.events_text.get("1.0", tk.END).strip(),
+                self.diag_text.get("1.0", tk.END).strip(),
+                self.cert_text.get("1.0", tk.END).strip(),
+                self.profile_text.get("1.0", tk.END).strip(),
+                self.report_text.get("1.0", tk.END).strip(),
+            ]
+            return "\n\n".join(section for section in sections if section) + "\n"
+
         lines = []
         lines.append("=" * 70)
         lines.append("NETWORK DIAGNOSTIC REPORT — ENTERPRISE WIRELESS")
