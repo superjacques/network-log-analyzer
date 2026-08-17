@@ -1165,9 +1165,14 @@ def read_macos_events(hours_back=24):
     )
     output = _run_cmd([
         "log", "show", "--style", "ndjson", "--last", f"{hours_back}h",
-        "--info", "--predicate", predicate,
+        "--predicate", predicate,
     ], timeout=30)
-    if not output or output.startswith("["):
+    if output == "[Command timed out]":
+        output = _run_cmd([
+            "log", "show", "--style", "ndjson", "--last", "6h",
+            "--predicate", predicate,
+        ], timeout=30)
+    if output.startswith("["):
         return None
     return _parse_macos_log(output)
 
@@ -1547,6 +1552,10 @@ def find_issues(events):
     if any(e.source.startswith("Linux/") for e in events):
         return find_linux_issues(events)
     if any(e.source.startswith("macOS/") for e in events):
+        return find_macos_issues(events)
+    if not events and sys.platform.startswith("linux"):
+        return find_linux_issues(events)
+    if not events and sys.platform.startswith("darwin"):
         return find_macos_issues(events)
 
     issues = []
