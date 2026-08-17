@@ -75,6 +75,7 @@ The main work that cannot be honestly validated without Windows is the actual `p
 - Made the command runner tolerate platforms where Windows’ `CREATE_NO_WINDOW` flag does not exist.
 - Verified the self-check and a real non-Windows command-runner invocation on Linux.
 - Made event severity channel-aware and added regression coverage for reused IDs such as `1002` and `1003`.
+- Made failed commands report their exit code and stderr instead of appearing as empty output.
 
 ## Cross-platform expansion
 
@@ -238,9 +239,9 @@ These are current limitations, not completed features. They are ordered roughly 
 
    The `netsh`, `ipconfig`, `ping`, `nslookup`, and WLAN-profile parsers search for English labels and output formats. They will be unreliable on localized systems.
 
-10. **Command failures lose useful diagnostics.**
+10. **Command results are still text-based.**
 
-    `_run_cmd` returns stdout but ignores stderr and the process return code. A failed command can therefore appear to have produced empty or incomplete data.
+    Failed commands now expose their exit code and stderr, but `_run_cmd` still returns formatted strings rather than a structured result object. A future collector API should separate stdout, stderr, return code, and timeout state.
 
 11. **The WLAN HTML report is parsed with brittle regular expressions.**
 

@@ -20,6 +20,7 @@ import threading
 import subprocess
 import re
 import os
+import sys
 
 try:
     import win32evtlog
@@ -279,7 +280,7 @@ def _event_severity(log_name, event_id):
 # =============================================================================
 
 def _run_cmd(cmd, timeout=15):
-    """Run a command and return stdout. Returns error string on failure."""
+    """Run a command and return stdout, or a useful bracketed error string."""
     try:
         # CREATE_NO_WINDOW exists only on Windows. Keep the runner importable
         # and testable on other platforms while preserving Windows behavior.
@@ -288,6 +289,11 @@ def _run_cmd(cmd, timeout=15):
             cmd, capture_output=True, text=True, timeout=timeout,
             creationflags=creationflags
         )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            if not detail:
+                detail = f"exit code {result.returncode}"
+            return f"[Command failed with exit code {result.returncode}: {detail}]"
         return result.stdout.strip()
     except subprocess.TimeoutExpired:
         return "[Command timed out]"
@@ -1524,6 +1530,14 @@ def _self_check():
         "Microsoft-Windows-CertificateServicesClient-Lifecycle-System/Operational",
         1003,
     ) == "WARNING"
+
+    # Test that command failures expose stderr and the exit code
+    failed_command = _run_cmd([
+        sys.executable, "-c",
+        "import sys; sys.stderr.write('expected failure'); sys.exit(3)",
+    ])
+    assert failed_command.startswith("[Command failed with exit code 3:")
+    assert "expected failure" in failed_command
 
     # Test NetworkProfile fallback
     np_events = [
