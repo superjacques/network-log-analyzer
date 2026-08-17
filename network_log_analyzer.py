@@ -24,7 +24,7 @@ import json
 # Apple ships an older system Tcl/Tk on some macOS versions. Suppress its
 # deprecation notice; users can still install a newer Python/Tk runtime.
 if sys.platform.startswith("darwin"):
-    os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
+    os.environ["TK_SILENCE_DEPRECATION"] = "1"
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
