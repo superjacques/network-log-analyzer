@@ -1757,8 +1757,8 @@ class NetworkLogAnalyzerApp:
         for column in range(4):
             tab_bar.grid_columnconfigure(column, weight=1)
 
-        content = tk.Frame(self.root, background="white", padx=8, pady=(4, 8))
-        content.grid(row=2, column=0, sticky="nsew")
+        content = tk.Frame(self.root, background="white", padx=8)
+        content.grid(row=2, column=0, sticky="nsew", pady=(4, 8))
         content.grid_columnconfigure(0, weight=1)
         content.grid_rowconfigure(0, weight=1)
 
