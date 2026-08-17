@@ -79,6 +79,8 @@ The main work that cannot be honestly validated without Windows is the actual `p
 - Added an initial Linux `journalctl` collector for network-related events; Linux scanning now populates the existing event view.
 - Added Linux live diagnostics for NetworkManager state/profiles, nearby Wi-Fi, IP/routes, DNS, and gateway ping.
 - Added initial Linux issue detection for authentication, DHCP, DNS, disconnect, and wireless-driver messages.
+- Added an initial macOS Unified Log collector and message-based network issue detection; macOS behavior remains unverified without a Mac test run.
+- Bounded Linux journal collection to network services and kernel messages so high-volume unrelated logs do not trigger false “journal unavailable” timeouts.
 
 ## Cross-platform expansion
 
@@ -122,7 +124,7 @@ Collectors should advertise capabilities instead of assuming every platform supp
 1. Extract the current Windows command and event-log code into a `platforms/windows` backend without changing behavior.
 2. Define normalized models and convert the existing Windows collector to produce them.
 3. Extend the initial Linux backend using `nmcli`/`ip` and NetworkManager-specific evidence, with graceful fallbacks.
-4. Add a read-only macOS backend using `networksetup`/`system_profiler`/`scutil`/`log show`.
+4. Extend the initial macOS backend using `networksetup`/`system_profiler`/`scutil` alongside the Unified Log collector.
 5. Move timeline and issue logic to the normalized layer.
 6. Add platform fixture tests and capability-aware UI messaging.
 

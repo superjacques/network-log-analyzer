@@ -920,13 +920,135 @@ def _parse_linux_journal(output):
 
 def read_linux_events(hours_back=24):
     """Read network-related Linux systemd journal entries, if available."""
-    output = _run_cmd([
+    base_command = [
         "journalctl", "--since", f"{hours_back} hours ago",
         "--output=json", "--no-pager",
+    ]
+    outputs = []
+
+    # Avoid scanning unrelated high-volume services. NetworkManager and
+    # wireless daemons carry connection events; --dmesg carries driver events.
+    service_output = _run_cmd(base_command + [
+        "--unit=NetworkManager.service",
+        "--unit=wpa_supplicant.service",
+        "--unit=iwd.service",
+        "--unit=systemd-networkd.service",
+        "--unit=systemd-resolved.service",
+        "--unit=dhclient.service",
+        "--unit=dhcpcd.service",
+        "--unit=connman.service",
+    ], timeout=30)
+    if service_output and not service_output.startswith("["):
+        outputs.append(service_output)
+
+    kernel_output = _run_cmd(base_command + ["--dmesg"], timeout=30)
+    if kernel_output and not kernel_output.startswith("["):
+        outputs.append(kernel_output)
+
+    if not outputs:
+        return None
+    return _parse_linux_journal("\n".join(outputs))
+
+
+MACOS_NETWORK_LOG_PATTERN = re.compile(
+    r"(airport|awdl|corewlan|wireless|wi-?fi|wifid|networkextension|"
+    r"networkd|configd|eapolclient|802\.1x|dhcp|dns|captive|reachability|link)",
+    re.IGNORECASE,
+)
+
+
+def _macos_event_severity(message_type):
+    """Map Unified Log message types to the application's severity names."""
+    message_type = str(message_type or "").lower()
+    if message_type in ("fault", "error"):
+        return "ERROR"
+    if message_type in ("warning", "warn"):
+        return "WARNING"
+    return "INFO"
+
+
+def _macos_timestamp(value):
+    """Parse common Unified Log timestamp representations as local naive time."""
+    if not value:
+        return None
+    text = str(value).strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def _parse_macos_log(output):
+    """Convert Unified Log NDJSON records into network-related LogEvent objects."""
+    events = []
+    for line in output.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+
+        message = str(
+            record.get("eventMessage")
+            or record.get("message")
+            or record.get("composedMessage")
+            or ""
+        ).strip()
+        process = str(
+            record.get("processImagePath")
+            or record.get("process")
+            or record.get("senderImagePath")
+            or "log"
+        )
+        subsystem = str(record.get("subsystem") or "")
+        category = str(record.get("category") or "")
+        context = " ".join((process, subsystem, category, message))
+        if not MACOS_NETWORK_LOG_PATTERN.search(context):
+            continue
+
+        timestamp = _macos_timestamp(record.get("timestamp") or record.get("time"))
+        if timestamp is None:
+            continue
+
+        source_name = "/".join(part for part in (subsystem, category, process) if part)
+        source_name = source_name or "unified-log"
+        events.append(LogEvent(
+            timestamp,
+            0,
+            f"macOS/unifiedlog/{source_name}",
+            f"macOS: {source_name}",
+            "Network-related macOS Unified Log event",
+            message,
+            _macos_event_severity(record.get("messageType")),
+        ))
+
+    return events
+
+
+def read_macos_events(hours_back=24):
+    """Read network-related macOS Unified Log entries, if available."""
+    predicate = (
+        'process == "airportd" OR process == "wifid" OR '
+        'process == "eapolclient" OR subsystem CONTAINS[c] "wifi" OR '
+        'subsystem CONTAINS[c] "network" OR eventMessage CONTAINS[c] "DHCP" OR '
+        'eventMessage CONTAINS[c] "DNS"'
+    )
+    output = _run_cmd([
+        "log", "show", "--style", "ndjson", "--last", f"{hours_back}h",
+        "--info", "--predicate", predicate,
     ], timeout=30)
     if not output or output.startswith("["):
         return None
-    return _parse_linux_journal(output)
+    return _parse_macos_log(output)
 
 
 def _extract_reason_code(message):
@@ -1225,10 +1347,86 @@ def find_linux_issues(events):
     return issues
 
 
+def find_macos_issues(events):
+    """Find network problems in normalized macOS Unified Log events."""
+    mac_events = [e for e in events if e.source.startswith("macOS/")]
+    failure_words = re.compile(
+        r"(fail|failed|failure|error|reject|denied|unreachable|lost|"
+        r"deauth|disassoc|disconnect|link down)",
+        re.IGNORECASE,
+    )
+    timeout_words = re.compile(r"(timeout|timed out)", re.IGNORECASE)
+
+    def matching(pattern):
+        return [
+            event for event in mac_events
+            if pattern.search(event.message) and (
+                failure_words.search(event.message)
+                or (
+                    timeout_words.search(event.message)
+                    and re.search(
+                        r"(wait|lease|auth|handshake|server|network|obtain)",
+                        event.message,
+                        re.IGNORECASE,
+                    )
+                )
+            )
+        ]
+
+    issues = []
+    auth = matching(re.compile(r"(auth|eapol|wpa|handshake)", re.IGNORECASE))
+    dhcp = matching(re.compile(r"dhcp", re.IGNORECASE))
+    dns = matching(re.compile(r"dns|resolve|resolver", re.IGNORECASE))
+    disconnects = matching(
+        re.compile(r"disconnect|deauth|disassoc|carrier|link", re.IGNORECASE)
+    )
+    driver = [
+        event for event in mac_events
+        if re.search(r"(airportd|wifid|wifi|wireless|driver|firmware)",
+                     event.message, re.IGNORECASE)
+        and (event.severity in ("ERROR", "WARNING") or failure_words.search(event.message))
+    ]
+
+    if auth:
+        issues.append(
+            f"MACOS AUTHENTICATION ISSUES: {len(auth)} event(s). "
+            "Check Wi-Fi credentials, WPA/EAP configuration, and access-point logs."
+        )
+    if dhcp:
+        issues.append(
+            f"MACOS DHCP ISSUES: {len(dhcp)} event(s). "
+            "Check the DHCP service, network profile, and address assignment."
+        )
+    if dns:
+        issues.append(
+            f"MACOS DNS ISSUES: {len(dns)} event(s). "
+            "Check resolver configuration and DNS reachability."
+        )
+    if disconnects:
+        issues.append(
+            f"MACOS DISCONNECTS: {len(disconnects)} event(s). "
+            "Check signal, roaming, power management, and interface logs."
+        )
+    if driver:
+        issues.append(
+            f"MACOS WIRELESS WARNINGS: {len(driver)} event(s). "
+            "Review airportd, wifid, firmware, and interface messages in All Events."
+        )
+
+    if not issues:
+        if mac_events:
+            issues.append("No recognized macOS network failures detected in the analyzed time window.")
+        else:
+            issues.append("No network-related macOS Unified Log events found in the analyzed time window.")
+    return issues
+
+
 def find_issues(events):
     """Identify potential issues from the event stream."""
     if any(e.source.startswith("Linux/") for e in events):
         return find_linux_issues(events)
+    if any(e.source.startswith("macOS/") for e in events):
+        return find_macos_issues(events)
 
     issues = []
     error_events = [e for e in events if e.severity == "ERROR"]
@@ -1526,11 +1724,16 @@ class NetworkLogAnalyzerApp:
     # --- Log Scanning ---
 
     def _start_scan(self):
-        if win32evtlog is None and not sys.platform.startswith("linux"):
+        if (
+            win32evtlog is None
+            and not sys.platform.startswith("linux")
+            and not sys.platform.startswith("darwin")
+        ):
             messagebox.showerror(
                 "Missing Dependency",
-                "Log scanning is currently supported on Windows and Linux.\n\n"
-                "Windows requires pywin32; Linux requires journalctl."
+                "Log scanning is currently supported on Windows, Linux, and macOS.\n\n"
+                "Windows requires pywin32; Linux requires journalctl; "
+                "macOS requires the log command."
             )
             return
         self.scan_btn.configure(state=tk.DISABLED)
@@ -1551,6 +1754,12 @@ class NetworkLogAnalyzerApp:
                 disabled_logs.append("Linux system journal")
             else:
                 all_events.extend(linux_events)
+        elif sys.platform.startswith("darwin"):
+            macos_events = read_macos_events(hours_back=hours)
+            if macos_events is None:
+                disabled_logs.append("macOS Unified Log")
+            else:
+                all_events.extend(macos_events)
         else:
             for log_name, event_map in LOG_SOURCES:
                 evts = read_events(log_name, event_map, hours_back=hours)
@@ -1570,6 +1779,11 @@ class NetworkLogAnalyzerApp:
                 note = (
                     "NOTE — The Linux system journal was unavailable.\n"
                     "Install/enable systemd-journald and ensure journalctl is readable.\n"
+                )
+            elif sys.platform.startswith("darwin"):
+                note = (
+                    "NOTE — The macOS Unified Log was unavailable.\n"
+                    "Ensure the `log` command is available and the selected time range is readable.\n"
                 )
             else:
                 note = (
@@ -1924,6 +2138,22 @@ def _self_check():
     )
     assert loss == 0
     assert average == 2.5
+
+    # Test parsing of macOS Unified Log NDJSON without requiring macOS
+    mac_fixture = json.dumps({
+        "timestamp": now.isoformat(),
+        "messageType": "Error",
+        "processImagePath": "airportd",
+        "subsystem": "com.apple.wifi",
+        "category": "association",
+        "eventMessage": "EAPOL authentication failed",
+    })
+    mac_events = _parse_macos_log(mac_fixture)
+    assert len(mac_events) == 1
+    assert mac_events[0].source.startswith("macOS/unifiedlog/com.apple.wifi")
+    assert mac_events[0].severity == "ERROR"
+    mac_issues = find_issues(mac_events)
+    assert any("MACOS AUTHENTICATION" in issue for issue in mac_issues)
 
     # Test NetworkProfile fallback
     np_events = [
