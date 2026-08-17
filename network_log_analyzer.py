@@ -1768,6 +1768,7 @@ class NetworkLogAnalyzerApp:
         ]
         self._mac_tab_frames = []
         self._mac_tab_buttons = []
+        self._mac_tab_names = tab_names
         for index, name in enumerate(tab_names):
             button = tk.Button(
                 tab_bar, text=name, command=lambda i=index: self._select_macos_tab(i),
@@ -1804,7 +1805,11 @@ class NetworkLogAnalyzerApp:
             frame.grid_remove()
         self._mac_tab_frames[index].grid()
         for i, button in enumerate(self._mac_tab_buttons):
-            button.configure(relief=tk.SUNKEN if i == index else tk.RAISED)
+            selected = i == index
+            button.configure(
+                text=(f"✓ {self._mac_tab_names[i]}" if selected else self._mac_tab_names[i]),
+                relief=tk.SUNKEN if selected else tk.RAISED,
+            )
         self._mac_selected_tab = index
 
     def _build_ui(self):
