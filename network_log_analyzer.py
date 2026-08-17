@@ -1623,6 +1623,7 @@ class NetworkLogAnalyzerApp:
             text="Network Log Analyzer — macOS compatibility mode",
             background="white",
             foreground="black",
+            font=("Helvetica", 16, "bold"),
             anchor=tk.W,
         ).pack(fill=tk.X, pady=(0, 6))
 
@@ -1646,6 +1647,10 @@ class NetworkLogAnalyzerApp:
             textvariable=self.status_var,
             background="white",
             foreground="black",
+            relief=tk.SUNKEN,
+            borderwidth=1,
+            padx=6,
+            pady=4,
             anchor=tk.W,
         ).pack(fill=tk.X, pady=(6, 0))
 
@@ -1655,6 +1660,10 @@ class NetworkLogAnalyzerApp:
             background="white",
             foreground="black",
             insertbackground="black",
+            relief=tk.SUNKEN,
+            borderwidth=1,
+            height=30,
+            width=100,
             font=("Menlo", 10),
         )
         self.mac_output_text.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
