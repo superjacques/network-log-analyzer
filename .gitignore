@@ -1,0 +1,46 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.env
+
+# IDE and editor metadata
+.idea/
+.vscode/
+
+# Logs and diagnostic evidence
+*.log
+logs/
+log/
+artifacts/
+captures/
+screenshots/
+reports/
+report/
+exports/
+export/
+network_diag_*.txt
+wlan-report*.html
+wlan-report*.htm
+*.evtx
+*.pcap
+*.pcapng
+
+# Certificate and key material
+*.cer
+*.crt
+*.der
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Local data exports that may contain identities, addresses, or network names
+*.csv
+*.jsonl
+
+# OS metadata
+.DS_Store
+Thumbs.db
